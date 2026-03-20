@@ -133,6 +133,24 @@ export class GameRoom extends Room<{ state: GameState }> {
       player.equippedWeaponType = "sword";
       player.equippedWeaponRarity = 0;
     });
+
+    this.onMessage("reset_game", () => {
+      // Reset wave state
+      this.state.wave.waveNumber = 0;
+      this.state.wave.state = "waiting";
+      this.state.wave.timer = 0;
+      this.state.wave.enemiesRemaining = 0;
+      // Clear all enemies and drops
+      this.state.enemies.clear();
+      this.state.droppedItems.clear();
+      this.state.droppedSpells.clear();
+      this.state.floatingTexts.clear();
+      // Start fresh
+      if (this.state.players.size > 0) {
+        this.waveManager.startWavePause();
+      }
+      this.broadcast("wave_complete", { waveNumber: 0, nextWaveIn: 10 });
+    });
   }
 
   onJoin(client: Client, options: { name?: string }) {

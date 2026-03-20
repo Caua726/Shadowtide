@@ -60,6 +60,13 @@ function initGame() {
   setupWeaponMessages(room, world);
   setupSpellMessages(room, world);
 
+  // Reset button
+  document.getElementById("resetGameBtn").addEventListener("click", () => {
+    if (confirm("Resetar o jogo inteiro? (waves, inimigos, drops)")) {
+      room.send("reset_game");
+    }
+  });
+
   // --- State callbacks ---
   const $ = Callbacks.get(room);
 
