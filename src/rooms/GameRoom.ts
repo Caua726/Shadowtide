@@ -151,6 +151,63 @@ export class GameRoom extends Room<{ state: GameState }> {
       }
       this.broadcast("wave_complete", { waveNumber: 0, nextWaveIn: 10 });
     });
+
+    // Debug commands
+    this.onMessage("debug", (client, payload: any) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const cmd = payload?.cmd;
+      switch (cmd) {
+        case "level_up": {
+          const levels = Math.min(Number(payload?.amount) || 1, 100 - player.level);
+          for (let i = 0; i < levels; i++) {
+            player.level++;
+            player.unspentPoints += 3;
+            if (player.level % 5 === 0) player.perkPoints++;
+            player.xpToNext = Math.round(player.xpToNext * 1.45);
+          }
+          player.hp = player.maxHp;
+          this.broadcast("level_up", { id: client.sessionId, level: player.level });
+          break;
+        }
+        case "give_weapon": {
+          const wType = payload?.weaponType || "sword";
+          const wRarity = Math.min(Math.max(Number(payload?.rarity) || 0, 0), 4);
+          player.equippedWeaponType = wType;
+          player.equippedWeaponRarity = wRarity;
+          break;
+        }
+        case "give_spell": {
+          const sId = payload?.spellId || "fireball";
+          const sRarity = Math.min(Math.max(Number(payload?.rarity) || 0, 0), 4);
+          const slotIdx = Number(payload?.slot) || 0;
+          if (slotIdx >= 0 && slotIdx < 5 && player.spellSlots[slotIdx]) {
+            player.spellSlots[slotIdx].spellId = sId;
+            player.spellSlots[slotIdx].spellRarity = sRarity;
+            player.spellSlots[slotIdx].cooldownLeft = 0;
+          }
+          break;
+        }
+        case "set_stats": {
+          player.str = Number(payload?.str) ?? player.str;
+          player.dex = Number(payload?.dex) ?? player.dex;
+          player.vit = Number(payload?.vit) ?? player.vit;
+          player.intel = Number(payload?.intel) ?? player.intel;
+          player.lck = Number(payload?.lck) ?? player.lck;
+          this.playerManager.recomputeDerivedStats(player);
+          break;
+        }
+        case "heal": {
+          player.hp = player.maxHp;
+          player.mana = player.maxMana;
+          break;
+        }
+        case "max_spell_slots": {
+          player.maxSpellSlots = 5;
+          break;
+        }
+      }
+    });
   }
 
   onJoin(client: Client, options: { name?: string }) {

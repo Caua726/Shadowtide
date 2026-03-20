@@ -11,6 +11,7 @@ import { setupInventoryUI, updateInventoryUI, handleInventoryKeys } from "./inve
 import { setupAttrPanel, showAttrPanel, toggleAttrPanel } from "./attributes.js";
 import { setupSkillTree, toggle as toggleSkillTree } from "./skilltree.js";
 import { setupNameScreen } from "./namescreen.js";
+import { setupDebugPanel } from "./debug.js";
 
 // --- State maps ---
 const players = new Map();
@@ -126,6 +127,7 @@ function initGame() {
   setupSkillTree(room);
   setupInventoryUI(room);
   setupSpellBar(room);
+  setupDebugPanel(room);
 
   // --- Game loop ---
   let sendTimer = 0, attackDown = false, aimTimer = 0;
