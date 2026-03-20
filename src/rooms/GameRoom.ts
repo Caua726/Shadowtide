@@ -678,36 +678,11 @@ export class GameRoom extends Room<{ state: GameState }> {
         return;
       }
 
-      // PERMADEATH: lose everything, restart from scratch
-      player.hp = 100;
-      player.maxHp = 100;
-      player.level = 1;
-      player.xp = 0;
-      player.xpToNext = 40;
-      player.str = 0;
-      player.dex = 0;
-      player.vit = 0;
-      player.intel = 0;
-      player.lck = 0;
-      player.unspentPoints = 0;
-      player.perkPoints = 0;
-      player.equippedWeaponType = "sword";
-      player.equippedWeaponRarity = 0;
-      player.activeSkillNodes.clear();
-      player.activeSkillNodes.push("center");
-      player.moveSpeed = 180;
-      player.critChance = 0;
-      player.hpRegen = 0;
-      // Clear inventory
-      for (let i = 0; i < 5; i++) {
-        if (player.inventory[i]) {
-          player.inventory[i].weaponType = "";
-          player.inventory[i].weaponRarity = -1;
-        }
-      }
+      // Death: respawn with XP penalty, keep everything else
+      player.hp = player.maxHp;
       player.x = 300 + Math.random() * 1000;
       player.y = 250 + Math.random() * 700;
-      this.recomputeBuffs(player.id, player);
+      player.xp = Math.max(0, player.xp - 20);
       this.broadcast("player_died", { id: player.id });
     }
   }
