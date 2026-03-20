@@ -57,8 +57,8 @@ void input_update(InputState *is, GameState *gs, NetworkContext *net, float scre
 
     // === Pickup item (E) ===
     if (IsKeyPressed(KEY_E)) {
-        // Find closest drop in range
-        float bestDist = 40.0f;
+        // Find closest drop in range (generous range to account for position sync delay)
+        float bestDist = 80.0f;
         DroppedItem *best = NULL;
         for (int i = 0; i < MAX_DROPS; i++) {
             if (!gs->drops[i].active) continue;
@@ -76,7 +76,7 @@ void input_update(InputState *is, GameState *gs, NetworkContext *net, float scre
 
     // === Pickup spell (F) ===
     if (IsKeyPressed(KEY_F)) {
-        float bestDist = 40.0f;
+        float bestDist = 80.0f;
         DroppedSpell *best = NULL;
         for (int i = 0; i < MAX_SPELL_DROPS; i++) {
             if (!gs->spellDrops[i].active) continue;
