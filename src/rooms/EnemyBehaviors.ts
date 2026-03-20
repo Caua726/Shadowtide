@@ -34,7 +34,7 @@ export function scaleStats(def: EnemyDef, waveNumber: number, isBoss: boolean): 
   let hp = Math.round(def.baseHp * hpScale);
   let damage = Math.round(def.baseDamage * dmgScale);
   let speed = def.speed;
-  let xpReward = Math.round(def.xpReward * (1 + waveNumber * 0.1));
+  let xpReward = Math.round(def.xpReward * (1 + waveNumber * 0.4));
 
   if (isBoss) {
     hp *= 10;

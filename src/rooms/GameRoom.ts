@@ -183,12 +183,18 @@ export class GameRoom extends Room<{ state: GameState }> {
       // Melee attack
       this.broadcast("swing", { id: client.sessionId, x: player.x, y: player.y, dx, dy });
       this.meleeHit(player, client.sessionId, finalDamage, def, buffs);
-    } else if (def.pelletCount) {
-      // Shotgun — multiple projectiles in cone
-      this.fireShotgun(player, client.sessionId, finalDamage, def, dx, dy);
     } else {
-      // Single projectile
-      this.fireProjectile(player, client.sessionId, finalDamage, def, dx, dy);
+      // Ranged: point-blank hit for enemies within 40px (so close-range isn't useless)
+      for (const [enemyId, enemy] of this.state.enemies) {
+        if (distance(player, enemy) <= 40) {
+          this.damageEnemy(enemyId, enemy, finalDamage, client.sessionId, buffs);
+        }
+      }
+      if (def.pelletCount) {
+        this.fireShotgun(player, client.sessionId, finalDamage, def, dx, dy);
+      } else {
+        this.fireProjectile(player, client.sessionId, finalDamage, def, dx, dy);
+      }
     }
 
     // Double Strike
@@ -399,7 +405,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.maxHp = Math.round(baseMaxHp * (1 + buffs.maxHpPercent / 100));
     player.moveSpeed = Math.round(BASE_PLAYER_SPEED * (1 + buffs.moveSpeedPercent / 100));
     player.critChance = player.lck * 0.5; // stored as percentage
-    player.hpRegen = player.vit * 0.2 + buffs.hpRegenFlat;
+    player.hpRegen = 1.0 + player.vit * 0.3 + buffs.hpRegenFlat; // base 1 HP/s passive regen
   }
 
   // --- Join / Leave ---

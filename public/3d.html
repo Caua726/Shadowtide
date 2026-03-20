@@ -166,13 +166,14 @@
     }
 
     /* ───── Three.js scene ───── */
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 0.9;
+    renderer.toneMappingExposure = 1.1;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     document.body.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
@@ -189,21 +190,35 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
-    /* ───── lighting ───── */
-    const ambient = new THREE.AmbientLight(0x334466, 1.2);
+    /* ───── lighting (enhanced PBR-style) ───── */
+    const ambient = new THREE.AmbientLight(0x1a2244, 0.4);
     scene.add(ambient);
 
-    const dirLight = new THREE.DirectionalLight(0xddeeff, 1.8);
-    dirLight.position.set(400, 600, 300);
+    // Main sun — strong directional with high-res shadows
+    const dirLight = new THREE.DirectionalLight(0xffeedd, 2.5);
+    dirLight.position.set(600, 800, 400);
     dirLight.castShadow = true;
-    dirLight.shadow.mapSize.set(2048, 2048);
-    dirLight.shadow.camera.left = -1000; dirLight.shadow.camera.right = 1000;
-    dirLight.shadow.camera.top = 1000;   dirLight.shadow.camera.bottom = -1000;
-    dirLight.shadow.camera.far = 2000;
+    dirLight.shadow.mapSize.set(4096, 4096);
+    dirLight.shadow.camera.left = -1200; dirLight.shadow.camera.right = 1200;
+    dirLight.shadow.camera.top = 1200;   dirLight.shadow.camera.bottom = -1200;
+    dirLight.shadow.camera.far = 2500;
+    dirLight.shadow.bias = -0.0003;
+    dirLight.shadow.normalBias = 0.02;
     scene.add(dirLight);
 
-    const hemi = new THREE.HemisphereLight(0x223355, 0x111122, 0.6);
+    // Sky hemisphere — cool sky, warm ground bounce
+    const hemi = new THREE.HemisphereLight(0x4488cc, 0x221100, 0.8);
     scene.add(hemi);
+
+    // Rim/fill light from opposite side
+    const fillLight = new THREE.DirectionalLight(0x5566aa, 0.6);
+    fillLight.position.set(-400, 300, -200);
+    scene.add(fillLight);
+
+    // Subtle blue point light for atmosphere
+    const atmoLight = new THREE.PointLight(0x3355ff, 0.8, 1500, 2);
+    atmoLight.position.set(WORLD_W / 2, 100, WORLD_H / 2);
+    scene.add(atmoLight);
 
     /* ───── ground ───── */
     function makeGridTexture() {
