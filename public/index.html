@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pixi + Colyseus RPG</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #0b1020; overflow: hidden; }
+    #hud {
+      position: fixed; left: 14px; top: 14px; z-index: 10; color: #fff;
+      font: 14px/1.4 system-ui, sans-serif; background: rgba(0,0,0,.45);
+      border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 10px 12px;
+      min-width: 240px; backdrop-filter: blur(6px);
+    }
+    #hud .bar { width: 220px; height: 12px; background: rgba(255,255,255,.12); border-radius: 999px; overflow: hidden; margin: 4px 0 8px; }
+    #hud .fill { height: 100%; width: 0%; }
+    #hpFill { background: linear-gradient(90deg, #ff5a5a, #ff8f8f); }
+    #xpFill { background: linear-gradient(90deg, #58a6ff, #87c2ff); }
+    #toast {
+      position: fixed; right: 14px; top: 14px; z-index: 10; color: #fff; font: 16px system-ui, sans-serif;
+      background: rgba(0,0,0,.45); border-radius: 12px; padding: 10px 12px; opacity: 0; transition: opacity .18s;
+    }
+    #error {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 10; color: #ffd5d5;
+      background: rgba(88, 0, 0, .55); border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 10px 14px;
+      font: 14px/1.4 system-ui, sans-serif; display: none; max-width: min(90vw, 700px);
+      white-space: pre-wrap;
+    }
+    canvas { display: block; margin: 0 auto; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div><b>WASD / setas</b> para mover</div>
+    <div><b>Espaço</b> para bater</div>
+    <div style="margin-top:8px">HP <span id="hpText">0 / 0</span></div>
+    <div class="bar"><div id="hpFill" class="fill"></div></div>
+    <div>XP <span id="xpText">0 / 0</span></div>
+    <div class="bar"><div id="xpFill" class="fill"></div></div>
+    <div>Level: <b id="levelText">1</b></div>
+    <div>Players: <b id="playersText">0</b></div>
+    <div>Inimigos: <b id="enemiesText">0</b></div>
+  </div>
+  <div id="toast"></div>
+  <div id="error"></div>
+
+  <script type="module">
+    import { Application, Container, Graphics, Text, TextStyle } from "https://cdn.jsdelivr.net/npm/pixi.js@8.16.0/dist/pixi.min.mjs";
+    import { Client, Callbacks } from "https://cdn.jsdelivr.net/npm/@colyseus/sdk@0.17.35/+esm";
+
+    const hpText = document.getElementById("hpText");
+    const xpText = document.getElementById("xpText");
+    const levelText = document.getElementById("levelText");
+    const playersText = document.getElementById("playersText");
+    const enemiesText = document.getElementById("enemiesText");
+    const hpFill = document.getElementById("hpFill");
+    const xpFill = document.getElementById("xpFill");
+    const toast = document.getElementById("toast");
+    const errorBox = document.getElementById("error");
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.style.opacity = "1";
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.style.opacity = "0", 1400);
+    }
+
+    function showError(message) {
+      errorBox.textContent = message;
+      errorBox.style.display = "block";
+      console.error(message);
+    }
+
+    const app = new Application();
+    await app.init({ resizeTo: window, background: "#0b1020", antialias: true });
+    document.body.appendChild(app.canvas);
+
+    const world = new Container();
+    app.stage.addChild(world);
+
+    const floor = new Graphics();
+    function redrawFloor(width, height) {
+      floor.clear();
+      floor.rect(0, 0, width, height).fill(0x101933);
+      for (let x = 0; x <= width; x += 64) floor.moveTo(x, 0).lineTo(x, height);
+      for (let y = 0; y <= height; y += 64) floor.moveTo(0, y).lineTo(width, y);
+      floor.stroke({ color: 0x1a2850, width: 1 });
+    }
+    world.addChild(floor);
+
+    const players = new Map();
+    const enemies = new Map();
+    const floatingTexts = new Map();
+    const effects = [];
+
+    function makePlayer(label, color) {
+      const c = new Container();
+      const body = new Graphics()
+        .circle(0, 0, 16).fill(color)
+        .circle(0, -3, 6).fill(0xffffff);
+      const sword = new Graphics()
+        .rect(16, -2, 18, 4).fill(0xf7f7f7)
+        .rect(12, -4, 6, 8).fill(0xc28b2c);
+      const text = new Text({
+        text: label,
+        style: new TextStyle({ fill: 0xffffff, fontSize: 12, fontWeight: "600" })
+      });
+      text.anchor.set(0.5);
+      text.y = -28;
+      c.addChild(body, sword, text);
+      c._sword = sword;
+      return c;
+    }
+
+    function makeEnemy() {
+      const c = new Container();
+      const body = new Graphics()
+        .roundRect(-14, -12, 28, 24, 8).fill(0xff6b6b)
+        .circle(-5, -2, 2).fill(0xffffff)
+        .circle(5, -2, 2).fill(0xffffff);
+      const hpBg = new Graphics().rect(-18, -24, 36, 4).fill(0x000000, 0.45);
+      const hpFillBar = new Graphics();
+      c.addChild(body, hpBg, hpFillBar);
+      c._hpFillBar = hpFillBar;
+      return c;
+    }
+
+    function makeFloatingText(textValue) {
+      return new Text({
+        text: textValue,
+        style: new TextStyle({ fill: 0xffffff, fontSize: 12, fontWeight: "700", stroke: { color: 0x000000, width: 3 } })
+      });
+    }
+
+    function updateEnemyBar(sprite, enemy) {
+      sprite._hpFillBar.clear();
+      const ratio = Math.max(0, enemy.hp / Math.max(1, enemy.maxHp));
+      sprite._hpFillBar.rect(-18, -24, 36 * ratio, 4).fill(0x80ff88);
+    }
+
+    const keys = Object.create(null);
+    window.addEventListener("keydown", (e) => {
+      keys[e.key.toLowerCase()] = true;
+      if (e.code === "Space") e.preventDefault();
+    });
+    window.addEventListener("keyup", (e) => {
+      keys[e.key.toLowerCase()] = false;
+    });
+
+    let room = null;
+
+    try {
+      const protocol = location.protocol === "https:" ? "https" : "http";
+      const client = new Client(`${protocol}://${location.host}`);
+      room = await client.joinOrCreate("world", { name: `Caua-${Math.floor(Math.random() * 999)}` });
+    } catch (err) {
+      showError(`Falha ao conectar no Colyseus.\n${err?.message || err}`);
+      throw err;
+    }
+
+    room.onMessage("level_up", ({ id, level }) => {
+      if (id === room.sessionId) showToast(`LEVEL UP -> ${level}`);
+    });
+
+    room.onMessage("player_died", ({ id }) => {
+      if (id === room.sessionId) showToast("tu morreu, respawnado");
+    });
+
+    room.onMessage("swing", ({ id, x, y, dx, dy }) => {
+      const angle = Math.atan2(dy || 1, dx || 0);
+      const effect = new Graphics();
+      effect.arc(x, y, 42, angle - 0.7, angle + 0.7).stroke({ color: id === room.sessionId ? 0x8bd3ff : 0xffc1c1, width: 5 });
+      effect.life = 0.12;
+      world.addChild(effect);
+      effects.push(effect);
+
+      const sprite = players.get(id);
+      if (sprite) {
+        sprite._sword.rotation = 0.7;
+        setTimeout(() => {
+          if (sprite && sprite._sword) sprite._sword.rotation = 0;
+        }, 90);
+      }
+    });
+
+    const $ = Callbacks.get(room);
+
+    $.onAdd("players", (player, id) => {
+      const sprite = makePlayer(player.name, id === room.sessionId ? 0x58a6ff : 0xdc7dff);
+      world.addChild(sprite);
+      players.set(id, sprite);
+
+      $.onChange(player, () => {
+        sprite.x = player.x;
+        sprite.y = player.y;
+      });
+
+      sprite.x = player.x;
+      sprite.y = player.y;
+    });
+
+    $.onRemove("players", (_, id) => {
+      const sprite = players.get(id);
+      if (sprite) {
+        world.removeChild(sprite);
+        players.delete(id);
+      }
+    });
+
+    $.onAdd("enemies", (enemy, id) => {
+      const sprite = makeEnemy();
+      world.addChild(sprite);
+      enemies.set(id, sprite);
+      updateEnemyBar(sprite, enemy);
+      sprite.x = enemy.x;
+      sprite.y = enemy.y;
+
+      $.onChange(enemy, () => {
+        sprite.x = enemy.x;
+        sprite.y = enemy.y;
+        updateEnemyBar(sprite, enemy);
+      });
+    });
+
+    $.onRemove("enemies", (_, id) => {
+      const sprite = enemies.get(id);
+      if (sprite) {
+        world.removeChild(sprite);
+        enemies.delete(id);
+      }
+    });
+
+    $.onAdd("floatingTexts", (item, id) => {
+      const text = makeFloatingText(item.text);
+      text.x = item.x;
+      text.y = item.y;
+      world.addChild(text);
+      floatingTexts.set(id, text);
+
+      $.onChange(item, () => {
+        text.text = item.text;
+        text.x = item.x;
+        text.y = item.y;
+      });
+    });
+
+    $.onRemove("floatingTexts", (_, id) => {
+      const text = floatingTexts.get(id);
+      if (text) {
+        world.removeChild(text);
+        floatingTexts.delete(id);
+      }
+    });
+
+    let sendTimer = 0;
+    let attackDown = false;
+
+    app.ticker.add((ticker) => {
+      const dt = ticker.deltaMS / 1000;
+      const me = room.state.players?.get(room.sessionId);
+      const worldWidth = room.state.worldWidth || 1600;
+      const worldHeight = room.state.worldHeight || 1200;
+      redrawFloor(worldWidth, worldHeight);
+
+      let dx = 0, dy = 0;
+      if (keys["w"] || keys["arrowup"]) dy -= 1;
+      if (keys["s"] || keys["arrowdown"]) dy += 1;
+      if (keys["a"] || keys["arrowleft"]) dx -= 1;
+      if (keys["d"] || keys["arrowright"]) dx += 1;
+      if (dx !== 0 || dy !== 0) {
+        const len = Math.hypot(dx, dy);
+        dx /= len;
+        dy /= len;
+      }
+
+      if (keys[" "] || keys["space"]) {
+        if (!attackDown) {
+          room.send("attack");
+          attackDown = true;
+        }
+      } else {
+        attackDown = false;
+      }
+
+      sendTimer += dt;
+      if (sendTimer >= 1 / 20) {
+        sendTimer = 0;
+        room.send("move", { x: dx, y: dy });
+      }
+
+      if (me) {
+        hpText.textContent = `${me.hp} / ${me.maxHp}`;
+        xpText.textContent = `${me.xp} / ${me.xpToNext}`;
+        levelText.textContent = String(me.level);
+        hpFill.style.width = `${(me.hp / me.maxHp) * 100}%`;
+        xpFill.style.width = `${(me.xp / me.xpToNext) * 100}%`;
+
+        const cameraX = app.screen.width / 2 - me.x;
+        const cameraY = app.screen.height / 2 - me.y;
+        world.x = Math.min(0, Math.max(app.screen.width - worldWidth, cameraX));
+        world.y = Math.min(0, Math.max(app.screen.height - worldHeight, cameraY));
+      }
+
+      playersText.textContent = String(players.size);
+      enemiesText.textContent = String(enemies.size);
+
+      for (let i = effects.length - 1; i >= 0; i--) {
+        const fx = effects[i];
+        fx.life -= dt;
+        fx.alpha = Math.max(0, fx.life / 0.12);
+        if (fx.life <= 0) {
+          world.removeChild(fx);
+          effects.splice(i, 1);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
