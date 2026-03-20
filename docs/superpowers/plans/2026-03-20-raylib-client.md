@@ -180,7 +180,7 @@ export class RawSocketBridge {
 
     const floatingTexts: any = {};
     this.state.floatingTexts.forEach((t, id) => {
-      floatingTexts[id] = { text: t.text, x: t.x, y: t.y, ttl: t.ttl };
+      floatingTexts[id] = { id: t.id, text: t.text, x: t.x, y: t.y, ttl: t.ttl };
     });
 
     return {
@@ -281,6 +281,7 @@ In `src/rooms/GameRoom.ts`, add after the imports (line 9):
 
 ```typescript
 import { RawSocketBridge } from "./RawSocketBridge.js";
+import { httpServer } from "../server.js";
 ```
 
 Add to class properties (after line 27):
@@ -289,11 +290,19 @@ Add to class properties (after line 27):
 bridge?: RawSocketBridge;
 ```
 
-Add public method to set bridge (after `onCreate`, before `registerMessages`):
+In `onCreate()`, after `this.saveInterval = ...` (end of method), add bridge creation:
 
 ```typescript
-setBridge(bridge: RawSocketBridge) {
-  this.bridge = bridge;
+// Create and attach raw WebSocket bridge
+if (httpServer) {
+  this.bridge = new RawSocketBridge(
+    this.state,
+    this.playerBuffs,
+    (sessionId, name) => this.playerManager.createPlayer(sessionId, name, this.state.players.size + 1),
+    (sessionId) => { this.playerManager.removePlayer(sessionId); this.combatSystem.cleanupClient(sessionId); },
+    (sessionId, type, payload) => this.handleBridgeMessage(sessionId, type, payload),
+  );
+  this.bridge.attach(httpServer);
 }
 ```
 
@@ -463,24 +472,26 @@ handleBridgeMessage(sessionId: string, type: string, payload: any) {
 }
 ```
 
-- [ ] **Step 2: Modify server.ts to create and attach bridge**
+- [ ] **Step 2: Modify server.ts to expose HTTP server globally**
 
-Replace `src/server.ts` content:
+The bridge is created by GameRoom in `onCreate()` to avoid fragile polling of Colyseus internals. We just need to make the HTTP server accessible:
 
 ```typescript
+// src/server.ts
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineRoom, defineServer } from "colyseus";
 import { GameRoom } from "./rooms/GameRoom.js";
-import { RawSocketBridge } from "./rooms/RawSocketBridge.js";
+import type { Server as HTTPServer } from "node:http";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const port = Number(process.env.PORT || 2567);
 
-let gameRoomInstance: GameRoom | null = null;
+// Shared HTTP server reference for the bridge
+export let httpServer: HTTPServer | null = null;
 
 const server = defineServer({
   rooms: {
@@ -494,52 +505,11 @@ const server = defineServer({
   },
 });
 
-server.listen(port).then((transport) => {
-  console.log(`HTTP + client em http://localhost:${port}`);
-  console.log("Colyseus room: world");
-
-  // Attach bridge to the underlying HTTP server
-  const httpServer = (transport as any).server;
-  if (httpServer) {
-    // Bridge will be set on GameRoom when the first room is created
-    // We need to hook into room creation
-    const origDefine = server.define;
-    console.log("RawSocketBridge: will attach when GameRoom is created");
-
-    // Watch for GameRoom instance via a polling approach
-    // The bridge attaches when the first client joins and the room is created
-    const checkRoom = setInterval(() => {
-      // Access internal matchmaker to find room
-      try {
-        const rooms = (server as any).matchMaker?.localRooms;
-        if (rooms) {
-          for (const room of rooms.values()) {
-            if (room instanceof GameRoom && !room.bridge) {
-              const bridge = new RawSocketBridge(
-                room.state,
-                (room as any).playerBuffs,
-                (sessionId, name) => {
-                  room.playerManager.createPlayer(sessionId, name, room.state.players.size + 1);
-                },
-                (sessionId) => {
-                  room.playerManager.removePlayer(sessionId);
-                  room.combatSystem.cleanupClient(sessionId);
-                },
-                (sessionId, type, payload) => {
-                  room.handleBridgeMessage(sessionId, type, payload);
-                },
-              );
-              bridge.attach(httpServer);
-              room.setBridge(bridge);
-              clearInterval(checkRoom);
-              console.log("RawSocketBridge attached to GameRoom");
-            }
-          }
-        }
-      } catch {}
-    }, 1000);
-  }
-});
+server.listen(port);
+// Grab the HTTP server from the transport
+httpServer = (server as any).transport?.server ?? null;
+console.log(`HTTP + client em http://localhost:${port}`);
+console.log("Colyseus room: world");
 ```
 
 - [ ] **Step 3: Make GameRoom subsystems accessible to bridge**
@@ -940,7 +910,7 @@ git commit -m "feat: add protocol layer with enums, string mappings, message bui
 #define MSG_MAX_LEN    16384
 
 typedef struct {
-    char messages[MSG_QUEUE_SIZE][MSG_MAX_LEN];
+    char (*messages)[MSG_MAX_LEN]; // heap-allocated: malloc(MSG_QUEUE_SIZE * MSG_MAX_LEN)
     int head;
     int tail;
     pthread_mutex_t mutex;
@@ -991,6 +961,7 @@ void net_send(NetworkContext *ctx, const char *json_msg);
 // === Message Queue ===
 
 void mq_init(MessageQueue *q) {
+    q->messages = malloc(MSG_QUEUE_SIZE * MSG_MAX_LEN);
     q->head = 0;
     q->tail = 0;
     pthread_mutex_init(&q->mutex, NULL);
@@ -1112,9 +1083,24 @@ static void *network_thread(void *arg) {
             continue;
         }
 
-        // Build path with name query param
+        // Build path with URL-encoded name query param
+        char encoded_name[128] = "";
+        {
+            int j = 0;
+            for (int i = 0; ctx->player_name[i] && j < (int)sizeof(encoded_name) - 4; i++) {
+                char c = ctx->player_name[i];
+                if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                    (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+                    encoded_name[j++] = c;
+                } else {
+                    snprintf(encoded_name + j, 4, "%%%02X", (unsigned char)c);
+                    j += 3;
+                }
+            }
+            encoded_name[j] = '\0';
+        }
         char path[512];
-        snprintf(path, sizeof(path), "/ws/raw?name=%s", ctx->player_name);
+        snprintf(path, sizeof(path), "/ws/raw?name=%s", encoded_name);
 
         struct lws_client_connect_info ccinfo;
         memset(&ccinfo, 0, sizeof(ccinfo));
@@ -1278,6 +1264,7 @@ typedef struct {
 } DroppedSpell;
 
 typedef struct {
+    char id[ID_LEN];
     char text[32];
     float x, y;
     float ttl;
@@ -1567,13 +1554,21 @@ static void parse_spell_drop(DroppedSpell *s, cJSON *obj, bool full) {
     if ((v = cJSON_GetObjectItem(obj, "ttl"))) s->ttl = (float)v->valuedouble;
 }
 
-static void parse_float_text(FloatingText *ft, cJSON *obj) {
+static void parse_float_text(FloatingText *ft, cJSON *obj, const char *key_id) {
     memset(ft, 0, sizeof(*ft));
     ft->active = true;
+    if (key_id) strncpy(ft->id, key_id, ID_LEN - 1);
     strncpy(ft->text, jstr(obj, "text"), sizeof(ft->text) - 1);
     ft->x = jnum(obj, "x", 0);
     ft->y = jnum(obj, "y", 0);
     ft->ttl = jnum(obj, "ttl", 1);
+}
+
+static FloatingText *find_float_text(GameState *gs, const char *id) {
+    for (int i = 0; i < MAX_FLOAT_TEXTS; i++)
+        if (gs->floatTexts[i].active && strcmp(gs->floatTexts[i].id, id) == 0)
+            return &gs->floatTexts[i];
+    return NULL;
 }
 
 // === Process state_sync ===
@@ -1632,7 +1627,7 @@ static void handle_state_sync(GameState *gs, cJSON *root) {
         cJSON *tj;
         cJSON_ArrayForEach(tj, texts) {
             FloatingText *ft = alloc_float_text(gs);
-            if (ft) parse_float_text(ft, tj);
+            if (ft) parse_float_text(ft, tj, NULL);
         }
     }
 
@@ -1730,11 +1725,12 @@ static void handle_state_patch(GameState *gs, cJSON *root) {
         cJSON_ArrayForEach(tj, texts) {
             const char *id = tj->string;
             if (cJSON_IsNull(tj)) {
-                // Find and deactivate by matching — floatingTexts don't have IDs in struct
-                // Just let them expire naturally
+                FloatingText *ft = find_float_text(gs, id);
+                if (ft) ft->active = false;
             } else {
-                FloatingText *ft = alloc_float_text(gs);
-                if (ft) parse_float_text(ft, tj);
+                FloatingText *ft = find_float_text(gs, id);
+                if (!ft) { ft = alloc_float_text(gs); if (!ft) continue; }
+                parse_float_text(ft, tj, id);
             }
         }
     }
@@ -1790,7 +1786,7 @@ static void handle_event(GameState *gs, cJSON *root) {
         sw->dx = jnum(data, "dx", 0);
         sw->dy = jnum(data, "dy", 0);
         sw->ttl = 0.15f;
-        sw->weaponType = weapon_type_from_string(jstr(data, "weaponType"));
+        sw->weaponType = WEAPON_SWORD; // server doesn't send weaponType in swing event
     }
     else if (strcmp(event, "explosion") == 0) {
         SpellEffect *se = alloc_spell_effect(gs);
@@ -2620,6 +2616,7 @@ git commit -m "feat: add UI with HUD, inventory, spell bar, attributes, skill tr
 #include <raylib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "game.h"
 #include "network.h"
