@@ -26,23 +26,56 @@
       font: 14px/1.4 system-ui, sans-serif; display: none; max-width: min(90vw, 700px);
       white-space: pre-wrap;
     }
+    .attr-row { margin: 4px 0; display: flex; align-items: center; gap: 8px; }
+    .attr-row button { width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-size: 16px; }
+    .attr-row button:hover { background: rgba(255,255,255,.2); }
     canvas { display: block; margin: 0 auto; }
   </style>
 </head>
 <body>
   <div id="hud">
-    <div><b>WASD / setas</b> para mover</div>
-    <div><b>Espaço</b> para bater</div>
+    <div><b>WASD / setas</b> mover | <b>Espaco</b> atacar</div>
+    <div><b>E</b> coletar | <b>P</b> atributos | <b>T</b> skills</div>
     <div style="margin-top:8px">HP <span id="hpText">0 / 0</span></div>
     <div class="bar"><div id="hpFill" class="fill"></div></div>
     <div>XP <span id="xpText">0 / 0</span></div>
     <div class="bar"><div id="xpFill" class="fill"></div></div>
     <div>Level: <b id="levelText">1</b></div>
+    <div>Arma: <b id="weaponText">Sword</b></div>
     <div>Players: <b id="playersText">0</b></div>
-    <div>Inimigos: <b id="enemiesText">0</b></div>
+    <div style="margin-top:4px; font-size:12px; color:#aaa">
+      STR:<b id="hudStr">0</b> DEX:<b id="hudDex">0</b> VIT:<b id="hudVit">0</b> INT:<b id="hudInt">0</b> LCK:<b id="hudLck">0</b>
+    </div>
+    <div style="margin-top:8px; border-top: 1px solid rgba(255,255,255,.15); padding-top: 8px;">
+      <div>Wave: <b id="waveText">0</b> <span id="waveStateText" style="color:#888"></span></div>
+      <div>Timer: <b id="waveTimerText">-</b></div>
+      <div>Restantes: <b id="enemiesRemainingText">0</b></div>
+    </div>
   </div>
   <div id="toast"></div>
   <div id="error"></div>
+
+  <div id="attrPanel" style="display:none; position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:20; background:rgba(0,0,0,.85); border:1px solid rgba(255,255,255,.2); border-radius:16px; padding:20px 28px; color:#fff; font:14px/1.6 system-ui,sans-serif; min-width:280px; backdrop-filter:blur(8px);">
+    <div style="font-size:18px;font-weight:700;margin-bottom:12px">Distribuir Pontos <span id="attrAvail" style="color:#58a6ff"></span></div>
+    <div class="attr-row">STR (Forca): <span id="attrStr">0</span> <button data-d="str">+</button></div>
+    <div class="attr-row">DEX (Destreza): <span id="attrDex">0</span> <button data-d="dex">+</button></div>
+    <div class="attr-row">VIT (Vitalidade): <span id="attrVit">0</span> <button data-d="vit">+</button></div>
+    <div class="attr-row">INT (Inteligencia): <span id="attrInt">0</span> <button data-d="intel">+</button></div>
+    <div class="attr-row">LCK (Sorte): <span id="attrLck">0</span> <button data-d="lck">+</button></div>
+    <div style="margin-top:12px;text-align:center">
+      <button id="attrConfirm" style="padding:6px 16px;border-radius:8px;background:#58a6ff;color:#000;border:none;font-weight:700;cursor:pointer">Confirmar</button>
+      <button id="attrClose" style="padding:6px 16px;border-radius:8px;background:#333;color:#fff;border:none;cursor:pointer;margin-left:8px">Fechar</button>
+    </div>
+  </div>
+
+  <div id="skillTreeOverlay" style="display:none; position:fixed; inset:0; z-index:25; background:rgba(0,0,0,.9);">
+    <div style="position:absolute; top:12px; left:50%; transform:translateX(-50%); color:#fff; font:16px system-ui,sans-serif; z-index:26;">
+      Arvore de Habilidades — Perks: <b id="perkPointsText">0</b>
+      <button id="resetTreeBtn" style="margin-left:12px; padding:4px 12px; border-radius:6px; background:#ff5a5a; color:#fff; border:none; cursor:pointer;">Resetar</button>
+      <button id="closeTreeBtn" style="margin-left:8px; padding:4px 12px; border-radius:6px; background:#333; color:#fff; border:none; cursor:pointer;">Fechar (T)</button>
+    </div>
+    <canvas id="skillTreeCanvas" style="width:100%;height:100%;"></canvas>
+  </div>
 
   <script type="module">
     import { Application, Container, Graphics, Text, TextStyle } from "https://cdn.jsdelivr.net/npm/pixi.js@8.16.0/dist/pixi.min.mjs";
@@ -52,11 +85,19 @@
     const xpText = document.getElementById("xpText");
     const levelText = document.getElementById("levelText");
     const playersText = document.getElementById("playersText");
-    const enemiesText = document.getElementById("enemiesText");
     const hpFill = document.getElementById("hpFill");
     const xpFill = document.getElementById("xpFill");
     const toast = document.getElementById("toast");
     const errorBox = document.getElementById("error");
+    const weaponText = document.getElementById("weaponText");
+    const waveText = document.getElementById("waveText");
+    const waveStateText = document.getElementById("waveStateText");
+    const waveTimerText = document.getElementById("waveTimerText");
+    const enemiesRemainingText = document.getElementById("enemiesRemainingText");
+
+    const RARITY_CSS = ["#fff", "#4ade80", "#60a5fa", "#c084fc", "#fbbf24"];
+    const RARITY_LABEL = ["", "Uncommon ", "Rare ", "Epic ", "Legendary "];
+    const RARITY_COLORS_HEX = [0xffffff, 0x4ade80, 0x60a5fa, 0xc084fc, 0xfbbf24];
 
     function showToast(message) {
       toast.textContent = message;
@@ -91,8 +132,11 @@
     const players = new Map();
     const enemies = new Map();
     const floatingTexts = new Map();
+    const droppedItems = new Map();
+    const clientProjectiles = new Map();
     const effects = [];
 
+    // --- Player sprite ---
     function makePlayer(label, color) {
       const c = new Container();
       const body = new Graphics()
@@ -112,12 +156,47 @@
       return c;
     }
 
-    function makeEnemy() {
+    // --- Enemy sprites by type ---
+    const ENEMY_COLORS = {
+      slime: 0x6bff6b, skeleton: 0xd4d4d4, archer: 0x8b5e3c, wolf: 0x888888,
+      golem: 0x8b7355, necromancer: 0x9b59b6, creeper: 0xff4444, sorcerer: 0x3498db,
+    };
+
+    function makeEnemy(enemyType, isBoss) {
       const c = new Container();
-      const body = new Graphics()
-        .roundRect(-14, -12, 28, 24, 8).fill(0xff6b6b)
-        .circle(-5, -2, 2).fill(0xffffff)
-        .circle(5, -2, 2).fill(0xffffff);
+      const color = ENEMY_COLORS[enemyType] || 0xff6b6b;
+      if (isBoss) c.scale.set(1.5);
+
+      let body;
+      switch (enemyType) {
+        case "slime":
+          body = new Graphics().ellipse(0, 2, 14, 10).fill(color).circle(-4, -2, 2).fill(0xffffff).circle(4, -2, 2).fill(0xffffff);
+          break;
+        case "skeleton":
+          body = new Graphics().rect(-6, -14, 12, 28).fill(color).circle(-3, -8, 2).fill(0x333333).circle(3, -8, 2).fill(0x333333);
+          break;
+        case "archer":
+          body = new Graphics().rect(-6, -14, 12, 28).fill(color).rect(8, -10, 3, 20).fill(0x654321);
+          break;
+        case "wolf":
+          body = new Graphics().ellipse(0, 0, 16, 10).fill(color).moveTo(14, -4).lineTo(22, -8).lineTo(14, 0).fill(color);
+          break;
+        case "golem":
+          body = new Graphics().roundRect(-16, -16, 32, 32, 4).fill(color);
+          break;
+        case "necromancer":
+          body = new Graphics().moveTo(0, -16).lineTo(12, 12).lineTo(-12, 12).closePath().fill(color).circle(0, -4, 3).fill(0x00ff00);
+          break;
+        case "creeper":
+          body = new Graphics().roundRect(-10, -14, 20, 28, 6).fill(color).circle(-3, -6, 2).fill(0x000000).circle(3, -6, 2).fill(0x000000);
+          break;
+        case "sorcerer":
+          body = new Graphics().circle(0, 0, 12).fill(color).circle(0, -14, 6).fill(0x2980b9);
+          break;
+        default:
+          body = new Graphics().roundRect(-14, -12, 28, 24, 8).fill(color);
+      }
+
       const hpBg = new Graphics().rect(-18, -24, 36, 4).fill(0x000000, 0.45);
       const hpFillBar = new Graphics();
       c.addChild(body, hpBg, hpFillBar);
@@ -158,8 +237,12 @@
       throw err;
     }
 
+    // --- Message handlers ---
     room.onMessage("level_up", ({ id, level }) => {
-      if (id === room.sessionId) showToast(`LEVEL UP -> ${level}`);
+      if (id === room.sessionId) {
+        showToast(`LEVEL UP -> ${level}`);
+        setTimeout(() => showAttrPanel(), 500);
+      }
     });
 
     room.onMessage("player_died", ({ id }) => {
@@ -177,12 +260,58 @@
       const sprite = players.get(id);
       if (sprite) {
         sprite._sword.rotation = 0.7;
-        setTimeout(() => {
-          if (sprite && sprite._sword) sprite._sword.rotation = 0;
-        }, 90);
+        setTimeout(() => { if (sprite && sprite._sword) sprite._sword.rotation = 0; }, 90);
       }
     });
 
+    room.onMessage("wave_start", ({ waveNumber, enemyCount }) => {
+      showToast(`WAVE ${waveNumber} — ${enemyCount} inimigos`);
+    });
+
+    room.onMessage("wave_complete", ({ waveNumber }) => {
+      showToast(`WAVE ${waveNumber} COMPLETA!`);
+    });
+
+    room.onMessage("boss_spawn", ({ enemyType }) => {
+      showToast(`BOSS: ${enemyType.toUpperCase()}!`);
+    });
+
+    room.onMessage("perk_available", ({ id }) => {
+      if (id === room.sessionId) showToast("NOVO PERK DISPONIVEL! (T)");
+    });
+
+    // --- Projectiles ---
+    const PROJECTILE_COLORS = {
+      bow: 0xc28b2c, staff: 0x9b59b6, pistol: 0xffff00, shotgun: 0xff8800,
+      arcaneOrb: 0x00ffcc, archer: 0x8b5e3c, sorcerer: 0x3498db,
+    };
+
+    room.onMessage("projectile_fired", ({ id, type, x, y, dx, dy, speed, isEnemy }) => {
+      const g = new Graphics();
+      const color = PROJECTILE_COLORS[type] || (isEnemy ? 0xff4444 : 0xffff00);
+      g.circle(0, 0, isEnemy ? 4 : 5).fill(color);
+      g.x = x; g.y = y;
+      g._dx = dx; g._dy = dy; g._speed = speed;
+      g._life = 3;
+      world.addChild(g);
+      clientProjectiles.set(id, g);
+    });
+
+    room.onMessage("projectile_hit", ({ id }) => {
+      const g = clientProjectiles.get(id);
+      if (g) { world.removeChild(g); clientProjectiles.delete(id); }
+    });
+
+    room.onMessage("explosion", ({ x, y, radius }) => {
+      const g = new Graphics();
+      g.circle(x, y, radius).fill({ color: 0xff4400, alpha: 0.4 });
+      g.circle(x, y, radius * 0.6).fill({ color: 0xffaa00, alpha: 0.5 });
+      g.life = 0.3;
+      world.addChild(g);
+      effects.push(g);
+    });
+
+    // --- State callbacks ---
     const $ = Callbacks.get(room);
 
     $.onAdd("players", (player, id) => {
@@ -201,14 +330,11 @@
 
     $.onRemove("players", (_, id) => {
       const sprite = players.get(id);
-      if (sprite) {
-        world.removeChild(sprite);
-        players.delete(id);
-      }
+      if (sprite) { world.removeChild(sprite); players.delete(id); }
     });
 
     $.onAdd("enemies", (enemy, id) => {
-      const sprite = makeEnemy();
+      const sprite = makeEnemy(enemy.enemyType, enemy.isBoss);
       world.addChild(sprite);
       enemies.set(id, sprite);
       updateEnemyBar(sprite, enemy);
@@ -224,34 +350,209 @@
 
     $.onRemove("enemies", (_, id) => {
       const sprite = enemies.get(id);
-      if (sprite) {
-        world.removeChild(sprite);
-        enemies.delete(id);
-      }
+      if (sprite) { world.removeChild(sprite); enemies.delete(id); }
     });
 
     $.onAdd("floatingTexts", (item, id) => {
       const text = makeFloatingText(item.text);
-      text.x = item.x;
-      text.y = item.y;
+      text.x = item.x; text.y = item.y;
       world.addChild(text);
       floatingTexts.set(id, text);
 
-      $.onChange(item, () => {
-        text.text = item.text;
-        text.x = item.x;
-        text.y = item.y;
-      });
+      $.onChange(item, () => { text.text = item.text; text.x = item.x; text.y = item.y; });
     });
 
     $.onRemove("floatingTexts", (_, id) => {
       const text = floatingTexts.get(id);
-      if (text) {
-        world.removeChild(text);
-        floatingTexts.delete(id);
+      if (text) { world.removeChild(text); floatingTexts.delete(id); }
+    });
+
+    $.onAdd("droppedItems", (item, id) => {
+      const c = new Container();
+      const color = RARITY_COLORS_HEX[item.weaponRarity] || 0xffffff;
+      const glow = new Graphics().circle(0, 0, 14).fill({ color, alpha: 0.25 });
+      const dot = new Graphics().roundRect(-6, -6, 12, 12, 3).fill(color);
+      c.addChild(glow, dot);
+      c.x = item.x; c.y = item.y;
+      world.addChild(c);
+      droppedItems.set(id, c);
+    });
+
+    $.onRemove("droppedItems", (_, id) => {
+      const c = droppedItems.get(id);
+      if (c) { world.removeChild(c); droppedItems.delete(id); }
+    });
+
+    // --- Attribute Panel ---
+    const attrPanel = document.getElementById("attrPanel");
+    const attrAvail = document.getElementById("attrAvail");
+    const attrConfirm = document.getElementById("attrConfirm");
+    const attrClose = document.getElementById("attrClose");
+    const pending = { str: 0, dex: 0, vit: 0, intel: 0, lck: 0 };
+
+    function showAttrPanel() {
+      const me = room.state.players?.get(room.sessionId);
+      if (!me || me.unspentPoints <= 0) return;
+      Object.keys(pending).forEach(k => pending[k] = 0);
+      updateAttrDisplay(me);
+      attrPanel.style.display = "block";
+    }
+
+    function updateAttrDisplay(me) {
+      document.getElementById("attrStr").textContent = me.str + pending.str;
+      document.getElementById("attrDex").textContent = me.dex + pending.dex;
+      document.getElementById("attrVit").textContent = me.vit + pending.vit;
+      document.getElementById("attrInt").textContent = me.intel + pending.intel;
+      document.getElementById("attrLck").textContent = me.lck + pending.lck;
+      const spent = Object.values(pending).reduce((a, b) => a + b, 0);
+      attrAvail.textContent = `(${me.unspentPoints - spent} disponiveis)`;
+    }
+
+    attrPanel.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-d]");
+      if (!btn) return;
+      const attr = btn.dataset.d;
+      const spent = Object.values(pending).reduce((a, b) => a + b, 0);
+      const me = room.state.players?.get(room.sessionId);
+      if (!me || spent >= me.unspentPoints) return;
+      pending[attr]++;
+      updateAttrDisplay(me);
+    });
+
+    attrConfirm.addEventListener("click", () => {
+      const total = Object.values(pending).reduce((a, b) => a + b, 0);
+      if (total > 0) room.send("allocate_points", { ...pending });
+      attrPanel.style.display = "none";
+    });
+
+    attrClose.addEventListener("click", () => { attrPanel.style.display = "none"; });
+
+    // --- Skill Tree ---
+    const SKILL_NODES = [
+      { id:"center", name:"Origin", region:"center", cost:0, conns:["c1","d1","u1"], px:0.5, py:0.5, effects:"Start" },
+      { id:"c1", name:"Sharpness I", region:"combat", cost:1, conns:["center","c2","c3"], px:0.38, py:0.42, effects:"+5% melee dmg" },
+      { id:"c2", name:"Precision I", region:"combat", cost:1, conns:["c1","c4","c5"], px:0.28, py:0.35, effects:"+5% ranged dmg" },
+      { id:"c3", name:"Swift Strikes", region:"combat", cost:1, conns:["c1","c6","mc1"], px:0.42, py:0.32, effects:"+5% atk speed" },
+      { id:"c4", name:"Sharpness II", region:"combat", cost:1, conns:["c2","c7"], px:0.2, py:0.28, effects:"+8% melee dmg" },
+      { id:"c5", name:"Precision II", region:"combat", cost:1, conns:["c2","c7","c8"], px:0.3, py:0.22, effects:"+8% ranged dmg" },
+      { id:"c6", name:"Ferocity", region:"combat", cost:1, conns:["c3","c8","c9"], px:0.45, py:0.2, effects:"+8% atk speed" },
+      { id:"c7", name:"Devastation", region:"combat", cost:1, conns:["c4","c5","c10"], px:0.22, py:0.15, effects:"+5% melee+ranged" },
+      { id:"c8", name:"Devastating Crit", region:"combat", cost:1, conns:["c5","c6","c10"], px:0.35, py:0.12, effects:"+50% crit dmg" },
+      { id:"c9", name:"Double Strike", region:"combat", cost:1, conns:["c6","c11"], px:0.5, py:0.1, effects:"15% double atk" },
+      { id:"c10", name:"Sharpness III", region:"combat", cost:1, conns:["c7","c8","c11"], px:0.28, py:0.05, effects:"+10% melee dmg" },
+      { id:"c11", name:"Vampirism", region:"combat", cost:1, conns:["c9","c10"], px:0.42, py:0.03, effects:"5% lifesteal" },
+      { id:"d1", name:"Toughness I", region:"defense", cost:1, conns:["center","d2","d3"], px:0.38, py:0.58, effects:"+5% max HP" },
+      { id:"d2", name:"Regen I", region:"defense", cost:1, conns:["d1","d4","d5"], px:0.28, py:0.65, effects:"+0.5 HP/s" },
+      { id:"d3", name:"Thick Skin", region:"defense", cost:1, conns:["d1","d6","mc1"], px:0.42, py:0.68, effects:"3% dmg reduction" },
+      { id:"d4", name:"Toughness II", region:"defense", cost:1, conns:["d2","d7"], px:0.2, py:0.72, effects:"+8% max HP" },
+      { id:"d5", name:"Regen II", region:"defense", cost:1, conns:["d2","d7","d8"], px:0.3, py:0.78, effects:"+1.0 HP/s" },
+      { id:"d6", name:"Iron Will", region:"defense", cost:1, conns:["d3","d8","d9"], px:0.45, py:0.8, effects:"5% dmg reduction" },
+      { id:"d7", name:"Toughness III", region:"defense", cost:1, conns:["d4","d5","d10"], px:0.22, py:0.85, effects:"+10% max HP" },
+      { id:"d8", name:"Kill Shield", region:"defense", cost:1, conns:["d5","d6","d10"], px:0.35, py:0.88, effects:"+10 HP on kill" },
+      { id:"d9", name:"Fortitude", region:"defense", cost:1, conns:["d6","d11","mc2"], px:0.52, py:0.88, effects:"8% dmg reduction" },
+      { id:"d10", name:"Regen III", region:"defense", cost:1, conns:["d7","d8","d11"], px:0.28, py:0.95, effects:"+1.5 HP/s" },
+      { id:"d11", name:"Second Chance", region:"defense", cost:1, conns:["d9","d10"], px:0.42, py:0.97, effects:"Revive 50% HP/wave" },
+      { id:"u1", name:"Swiftness I", region:"utility", cost:1, conns:["center","u2","u3"], px:0.62, py:0.5, effects:"+5% move speed" },
+      { id:"u2", name:"Collector I", region:"utility", cost:1, conns:["u1","u4","u5"], px:0.72, py:0.42, effects:"+15% pickup radius" },
+      { id:"u3", name:"Fortune I", region:"utility", cost:1, conns:["u1","u6","mc2"], px:0.68, py:0.58, effects:"+3% drop chance" },
+      { id:"u4", name:"Swiftness II", region:"utility", cost:1, conns:["u2","u7"], px:0.8, py:0.35, effects:"+8% move speed" },
+      { id:"u5", name:"Scholar I", region:"utility", cost:1, conns:["u2","u7","u8"], px:0.78, py:0.48, effects:"+10% XP" },
+      { id:"u6", name:"Fortune II", region:"utility", cost:1, conns:["u3","u8","u9"], px:0.75, py:0.65, effects:"+5% drop chance" },
+      { id:"u7", name:"Swiftness III", region:"utility", cost:1, conns:["u4","u5","u10"], px:0.88, py:0.4, effects:"+10% move speed" },
+      { id:"u8", name:"Lucky Drops", region:"utility", cost:1, conns:["u5","u6","u10"], px:0.85, py:0.55, effects:"+1 rarity shift" },
+      { id:"u9", name:"War Aura", region:"utility", cost:1, conns:["u6","u11"], px:0.78, py:0.75, effects:"+10% ally dmg aura" },
+      { id:"u10", name:"Scholar II", region:"utility", cost:1, conns:["u7","u8","u11"], px:0.92, py:0.5, effects:"+15% XP" },
+      { id:"u11", name:"Collector II", region:"utility", cost:1, conns:["u9","u10"], px:0.9, py:0.68, effects:"+30% pickup radius" },
+      { id:"mc1", name:"Berserker", region:"major", cost:2, conns:["c3","d3"], px:0.45, py:0.5, effects:"+30% dmg <30% HP" },
+      { id:"mc2", name:"Scavenger", region:"major", cost:2, conns:["d9","u3"], px:0.6, py:0.72, effects:"+10% drops +1 rarity" },
+    ];
+    const SKILL_MAP = new Map(SKILL_NODES.map(n => [n.id, n]));
+    const REGION_COLORS = { combat: "#ff6b6b", defense: "#4ade80", utility: "#60a5fa", center: "#fbbf24", major: "#c084fc" };
+
+    const skillTreeOverlay = document.getElementById("skillTreeOverlay");
+    const skillTreeCanvas = document.getElementById("skillTreeCanvas");
+
+    function renderSkillTree(canvas) {
+      const ctx = canvas.getContext("2d");
+      const w = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+      const h = canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1);
+      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+      const dw = canvas.clientWidth, dh = canvas.clientHeight;
+      ctx.clearRect(0, 0, dw, dh);
+
+      const me = room.state.players?.get(room.sessionId);
+      const activeIds = me ? [...me.activeSkillNodes] : [];
+
+      ctx.strokeStyle = "rgba(255,255,255,0.15)";
+      ctx.lineWidth = 2;
+      for (const node of SKILL_NODES) {
+        const x1 = node.px * dw, y1 = node.py * dh;
+        for (const connId of node.conns) {
+          const other = SKILL_MAP.get(connId);
+          if (other) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(other.px * dw, other.py * dh); ctx.stroke(); }
+        }
+      }
+
+      for (const node of SKILL_NODES) {
+        const x = node.px * dw, y = node.py * dh;
+        const isActive = activeIds.includes(node.id);
+        const color = REGION_COLORS[node.region] || "#fff";
+        const radius = node.cost === 2 ? 18 : 12;
+
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = isActive ? color : "rgba(40,40,60,0.8)";
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isActive ? 3 : 1;
+        ctx.stroke();
+
+        ctx.fillStyle = "#fff";
+        ctx.font = "11px system-ui";
+        ctx.textAlign = "center";
+        ctx.fillText(node.name, x, y + radius + 14);
+        ctx.font = "9px system-ui";
+        ctx.fillStyle = "#aaa";
+        ctx.fillText(node.effects, x, y + radius + 26);
+      }
+
+      document.getElementById("perkPointsText").textContent = me ? me.perkPoints : "0";
+    }
+
+    function toggleSkillTree() {
+      if (skillTreeOverlay.style.display === "none") {
+        skillTreeOverlay.style.display = "block";
+        renderSkillTree(skillTreeCanvas);
+      } else {
+        skillTreeOverlay.style.display = "none";
+      }
+    }
+
+    skillTreeCanvas.addEventListener("click", (e) => {
+      const rect = skillTreeCanvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const w = skillTreeCanvas.clientWidth;
+      const h = skillTreeCanvas.clientHeight;
+
+      for (const node of SKILL_NODES) {
+        const nx = node.px * w, ny = node.py * h;
+        if (Math.hypot(mx - nx, my - ny) < 20) {
+          room.send("activate_node", { nodeId: node.id });
+          setTimeout(() => renderSkillTree(skillTreeCanvas), 100);
+          break;
+        }
       }
     });
 
+    document.getElementById("resetTreeBtn").addEventListener("click", () => {
+      room.send("reset_tree");
+      setTimeout(() => renderSkillTree(skillTreeCanvas), 100);
+    });
+
+    document.getElementById("closeTreeBtn").addEventListener("click", toggleSkillTree);
+
+    // --- Game loop ---
     let sendTimer = 0;
     let attackDown = false;
 
@@ -269,18 +570,41 @@
       if (keys["d"] || keys["arrowright"]) dx += 1;
       if (dx !== 0 || dy !== 0) {
         const len = Math.hypot(dx, dy);
-        dx /= len;
-        dy /= len;
+        dx /= len; dy /= len;
       }
 
       if (keys[" "] || keys["space"]) {
-        if (!attackDown) {
-          room.send("attack");
-          attackDown = true;
+        if (!attackDown) { room.send("attack"); attackDown = true; }
+      } else { attackDown = false; }
+
+      // Pickup (E)
+      if (keys["e"]) {
+        if (!keys._pickupSent) {
+          keys._pickupSent = true;
+          if (me && room.state.droppedItems) {
+            let nearestId = null, nearestDist = 50;
+            room.state.droppedItems.forEach((item, id) => {
+              const d = Math.hypot(item.x - me.x, item.y - me.y);
+              if (d < nearestDist) { nearestDist = d; nearestId = id; }
+            });
+            if (nearestId) room.send("pickup_item", { itemId: nearestId });
+          }
         }
-      } else {
-        attackDown = false;
-      }
+      } else { keys._pickupSent = false; }
+
+      // Attr panel (P)
+      if (keys["p"]) {
+        if (!keys._panelSent) {
+          keys._panelSent = true;
+          if (attrPanel.style.display === "none") showAttrPanel();
+          else attrPanel.style.display = "none";
+        }
+      } else { keys._panelSent = false; }
+
+      // Skill tree (T)
+      if (keys["t"]) {
+        if (!keys._treeSent) { keys._treeSent = true; toggleSkillTree(); }
+      } else { keys._treeSent = false; }
 
       sendTimer += dt;
       if (sendTimer >= 1 / 20) {
@@ -289,11 +613,20 @@
       }
 
       if (me) {
-        hpText.textContent = `${me.hp} / ${me.maxHp}`;
+        hpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
         xpText.textContent = `${me.xp} / ${me.xpToNext}`;
         levelText.textContent = String(me.level);
         hpFill.style.width = `${(me.hp / me.maxHp) * 100}%`;
         xpFill.style.width = `${(me.xp / me.xpToNext) * 100}%`;
+
+        weaponText.textContent = `${RARITY_LABEL[me.equippedWeaponRarity]}${me.equippedWeaponType}`;
+        weaponText.style.color = RARITY_CSS[me.equippedWeaponRarity];
+
+        document.getElementById("hudStr").textContent = me.str;
+        document.getElementById("hudDex").textContent = me.dex;
+        document.getElementById("hudVit").textContent = me.vit;
+        document.getElementById("hudInt").textContent = me.intel;
+        document.getElementById("hudLck").textContent = me.lck;
 
         const cameraX = app.screen.width / 2 - me.x;
         const cameraY = app.screen.height / 2 - me.y;
@@ -301,13 +634,30 @@
         world.y = Math.min(0, Math.max(app.screen.height - worldHeight, cameraY));
       }
 
-      playersText.textContent = String(players.size);
-      enemiesText.textContent = String(enemies.size);
+      // Wave HUD
+      const wave = room.state.wave;
+      if (wave) {
+        waveText.textContent = String(wave.waveNumber);
+        waveStateText.textContent = wave.state === "pause" ? "(pausa)" : wave.state === "combat" ? "(combate)" : "";
+        waveTimerText.textContent = wave.state === "pause" ? `${Math.ceil(wave.timer)}s` : "-";
+        enemiesRemainingText.textContent = String(wave.enemiesRemaining);
+      }
 
+      playersText.textContent = String(players.size);
+
+      // Update client projectiles
+      for (const [id, g] of clientProjectiles) {
+        g.x += g._dx * g._speed * dt;
+        g.y += g._dy * g._speed * dt;
+        g._life -= dt;
+        if (g._life <= 0) { world.removeChild(g); clientProjectiles.delete(id); }
+      }
+
+      // Effects cleanup
       for (let i = effects.length - 1; i >= 0; i--) {
         const fx = effects[i];
         fx.life -= dt;
-        fx.alpha = Math.max(0, fx.life / 0.12);
+        fx.alpha = Math.max(0, fx.life / (fx.life + dt + 0.01));
         if (fx.life <= 0) {
           world.removeChild(fx);
           effects.splice(i, 1);
