@@ -387,7 +387,7 @@ export class CombatSystem {
     const dropSystem = this.getDropSystem();
     dropSystem.spawnDrop(enemy.x, enemy.y, enemy.isBoss, killer.id);
 
-    if (Math.random() < 0.03) {
+    if (Math.random() < 0.15) {
       dropSystem.spawnSpellDrop(enemy.x, enemy.y);
     }
 
