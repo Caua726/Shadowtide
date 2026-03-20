@@ -8,12 +8,12 @@
     html, body { margin: 0; padding: 0; background: #0b1020; overflow: hidden; }
     #hud {
       position: fixed; left: 14px; top: 14px; z-index: 10; color: #fff;
-      font: 14px/1.4 system-ui, sans-serif; background: rgba(0,0,0,.45);
+      font: 13px/1.4 system-ui, sans-serif; background: rgba(0,0,0,.55);
       border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 10px 12px;
-      min-width: 240px; backdrop-filter: blur(6px);
+      min-width: 220px; backdrop-filter: blur(6px); pointer-events: none;
     }
-    #hud .bar { width: 220px; height: 12px; background: rgba(255,255,255,.12); border-radius: 999px; overflow: hidden; margin: 4px 0 8px; }
-    #hud .fill { height: 100%; width: 0%; }
+    #hud .bar { width: 200px; height: 10px; background: rgba(255,255,255,.12); border-radius: 999px; overflow: hidden; margin: 3px 0 6px; }
+    #hud .fill { height: 100%; width: 0%; transition: width .15s; }
     #hpFill { background: linear-gradient(90deg, #ff5a5a, #ff8f8f); }
     #xpFill { background: linear-gradient(90deg, #58a6ff, #87c2ff); }
     #toast {
@@ -23,39 +23,80 @@
     #error {
       position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 10; color: #ffd5d5;
       background: rgba(88, 0, 0, .55); border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 10px 14px;
-      font: 14px/1.4 system-ui, sans-serif; display: none; max-width: min(90vw, 700px);
-      white-space: pre-wrap;
+      font: 14px/1.4 system-ui, sans-serif; display: none; max-width: min(90vw, 700px); white-space: pre-wrap;
     }
     .attr-row { margin: 4px 0; display: flex; align-items: center; gap: 8px; }
     .attr-row button { width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-size: 16px; }
     .attr-row button:hover { background: rgba(255,255,255,.2); }
     canvas { display: block; margin: 0 auto; }
+    /* Inventory bar */
+    #invBar {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 10;
+      display: flex; gap: 4px; pointer-events: auto;
+    }
+    .inv-slot {
+      width: 48px; height: 48px; border-radius: 8px; background: rgba(0,0,0,.6);
+      border: 2px solid rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; position: relative; font: 11px system-ui, sans-serif; color: #888;
+    }
+    .inv-slot:hover { border-color: rgba(255,255,255,.5); }
+    .inv-slot .slot-key { position: absolute; top: 2px; left: 4px; font-size: 9px; color: #666; }
+    .inv-slot .slot-icon { font-size: 18px; }
+    /* Tooltip */
+    #tooltip {
+      position: fixed; z-index: 30; background: rgba(0,0,0,.9); border: 1px solid rgba(255,255,255,.25);
+      border-radius: 10px; padding: 10px 14px; color: #fff; font: 12px/1.5 system-ui, sans-serif;
+      pointer-events: none; display: none; max-width: 220px; backdrop-filter: blur(6px);
+    }
+    /* Name screen */
+    #nameScreen {
+      position: fixed; inset: 0; z-index: 50; background: rgba(11,16,32,.95);
+      display: flex; align-items: center; justify-content: center; flex-direction: column;
+      color: #fff; font-family: system-ui, sans-serif;
+    }
+    #nameScreen h1 { font-size: 32px; margin-bottom: 20px; }
+    #nameScreen input {
+      width: 260px; padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.08); color: #fff; font-size: 18px; text-align: center; outline: none;
+    }
+    #nameScreen input:focus { border-color: #58a6ff; }
+    #nameScreen button {
+      margin-top: 14px; padding: 10px 32px; border-radius: 10px; border: none;
+      background: #58a6ff; color: #000; font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    #nameScreen button:hover { background: #87c2ff; }
   </style>
 </head>
 <body>
-  <div id="hud">
-    <div><b>WASD / setas</b> mover | <b>Espaco</b> atacar</div>
-    <div><b>E</b> coletar | <b>P</b> atributos | <b>T</b> skills</div>
-    <div style="margin-top:8px">HP <span id="hpText">0 / 0</span></div>
+
+  <!-- Name entry screen -->
+  <div id="nameScreen">
+    <h1>RPG Colyseus</h1>
+    <input id="nameInput" type="text" placeholder="Digite seu nome..." maxlength="16" autofocus />
+    <button id="nameBtn">Entrar</button>
+  </div>
+
+  <div id="hud" style="display:none">
+    <div style="font-size:11px;color:#888">WASD mover | Espaco atacar | E coletar | Q dropar</div>
+    <div style="font-size:11px;color:#888">P atributos | T skills | 1-5 trocar arma</div>
+    <div style="margin-top:6px">HP <span id="hpText">0 / 0</span></div>
     <div class="bar"><div id="hpFill" class="fill"></div></div>
     <div>XP <span id="xpText">0 / 0</span></div>
     <div class="bar"><div id="xpFill" class="fill"></div></div>
-    <div>Level: <b id="levelText">1</b></div>
-    <div>Arma: <b id="weaponText">Sword</b></div>
-    <div>Players: <b id="playersText">0</b></div>
-    <div style="margin-top:4px; font-size:12px; color:#aaa">
+    <div>Lv: <b id="levelText">1</b> | Arma: <b id="weaponText">Sword</b></div>
+    <div style="font-size:11px;color:#aaa;margin-top:3px">
       STR:<b id="hudStr">0</b> DEX:<b id="hudDex">0</b> VIT:<b id="hudVit">0</b> INT:<b id="hudInt">0</b> LCK:<b id="hudLck">0</b>
     </div>
-    <div style="margin-top:8px; border-top: 1px solid rgba(255,255,255,.15); padding-top: 8px;">
+    <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.15);padding-top:6px">
       <div>Wave: <b id="waveText">0</b> <span id="waveStateText" style="color:#888"></span></div>
-      <div>Timer: <b id="waveTimerText">-</b></div>
-      <div>Restantes: <b id="enemiesRemainingText">0</b></div>
+      <div>Timer: <b id="waveTimerText">-</b> | Rest: <b id="enemiesRemainingText">0</b></div>
     </div>
   </div>
   <div id="toast"></div>
   <div id="error"></div>
+  <div id="tooltip"></div>
 
-  <div id="attrPanel" style="display:none; position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); z-index:20; background:rgba(0,0,0,.85); border:1px solid rgba(255,255,255,.2); border-radius:16px; padding:20px 28px; color:#fff; font:14px/1.6 system-ui,sans-serif; min-width:280px; backdrop-filter:blur(8px);">
+  <div id="attrPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:20px 28px;color:#fff;font:14px/1.6 system-ui,sans-serif;min-width:280px;backdrop-filter:blur(8px);">
     <div style="font-size:18px;font-weight:700;margin-bottom:12px">Distribuir Pontos <span id="attrAvail" style="color:#58a6ff"></span></div>
     <div class="attr-row">STR (Forca): <span id="attrStr">0</span> <button data-d="str">+</button></div>
     <div class="attr-row">DEX (Destreza): <span id="attrDex">0</span> <button data-d="dex">+</button></div>
@@ -68,19 +109,29 @@
     </div>
   </div>
 
-  <div id="skillTreeOverlay" style="display:none; position:fixed; inset:0; z-index:25; background:rgba(0,0,0,.9);">
-    <div style="position:absolute; top:12px; left:50%; transform:translateX(-50%); color:#fff; font:16px system-ui,sans-serif; z-index:26;">
+  <div id="skillTreeOverlay" style="display:none;position:fixed;inset:0;z-index:25;background:rgba(0,0,0,.9);">
+    <div style="position:absolute;top:12px;left:50%;transform:translateX(-50%);color:#fff;font:16px system-ui,sans-serif;z-index:26;">
       Arvore de Habilidades — Perks: <b id="perkPointsText">0</b>
-      <button id="resetTreeBtn" style="margin-left:12px; padding:4px 12px; border-radius:6px; background:#ff5a5a; color:#fff; border:none; cursor:pointer;">Resetar</button>
-      <button id="closeTreeBtn" style="margin-left:8px; padding:4px 12px; border-radius:6px; background:#333; color:#fff; border:none; cursor:pointer;">Fechar (T)</button>
+      <button id="resetTreeBtn" style="margin-left:12px;padding:4px 12px;border-radius:6px;background:#ff5a5a;color:#fff;border:none;cursor:pointer;">Resetar</button>
+      <button id="closeTreeBtn" style="margin-left:8px;padding:4px 12px;border-radius:6px;background:#333;color:#fff;border:none;cursor:pointer;">Fechar (T)</button>
     </div>
     <canvas id="skillTreeCanvas" style="width:100%;height:100%;"></canvas>
+  </div>
+
+  <!-- Inventory bar -->
+  <div id="invBar" style="display:none">
+    <div class="inv-slot" data-slot="0"><span class="slot-key">1</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="1"><span class="slot-key">2</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="2"><span class="slot-key">3</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="3"><span class="slot-key">4</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="4"><span class="slot-key">5</span><span class="slot-icon"></span></div>
   </div>
 
   <script type="module">
     import { Application, Container, Graphics, Text, TextStyle } from "https://cdn.jsdelivr.net/npm/pixi.js@8.16.0/dist/pixi.min.mjs";
     import { Client, Callbacks } from "https://cdn.jsdelivr.net/npm/@colyseus/sdk@0.17.35/+esm";
 
+    // --- DOM refs ---
     const hpText = document.getElementById("hpText");
     const xpText = document.getElementById("xpText");
     const levelText = document.getElementById("levelText");
@@ -94,24 +145,34 @@
     const waveStateText = document.getElementById("waveStateText");
     const waveTimerText = document.getElementById("waveTimerText");
     const enemiesRemainingText = document.getElementById("enemiesRemainingText");
+    const tooltipEl = document.getElementById("tooltip");
 
-    const RARITY_CSS = ["#fff", "#4ade80", "#60a5fa", "#c084fc", "#fbbf24"];
-    const RARITY_LABEL = ["", "Uncommon ", "Rare ", "Epic ", "Legendary "];
-    const RARITY_COLORS_HEX = [0xffffff, 0x4ade80, 0x60a5fa, 0xc084fc, 0xfbbf24];
+    const RARITY_CSS = ["#fff","#4ade80","#60a5fa","#c084fc","#fbbf24"];
+    const RARITY_LABEL = ["Common","Uncommon","Rare","Epic","Legendary"];
+    const RARITY_HEX = [0xffffff,0x4ade80,0x60a5fa,0xc084fc,0xfbbf24];
+    const WEAPON_ICONS = { sword:"\u2694", hammer:"\ud83d\udd28", bow:"\ud83c\udff9", staff:"\ud83e\uddf9", pistol:"\ud83d\udd2b", shotgun:"\ud83d\udca5", arcaneOrb:"\ud83d\udd2e" };
+    const WEAPON_NAMES = { sword:"Espada", hammer:"Martelo", bow:"Arco", staff:"Cajado", pistol:"Pistola", shotgun:"Escopeta", arcaneOrb:"Orbe Arcano" };
+    const WEAPON_DESC = {
+      sword:"Melee equilibrado. Escala com STR.",
+      hammer:"Melee pesado com knockback. Escala com STR.",
+      bow:"Projetil reto, alcance medio. Escala com DEX.",
+      staff:"Projetil magico com explosao em area. Escala com INT.",
+      pistol:"Tiro rapido, dano baixo. Escala com DEX.",
+      shotgun:"Cone de 5 projeteis, devastador de perto. Escala com STR.",
+      arcaneOrb:"Projetil perseguidor. Escala com INT."
+    };
+    const WEAPON_BASE_DMG = { sword:14, hammer:24, bow:12, staff:18, pistol:7, shotgun:25, arcaneOrb:10 };
+    const RARITY_MULT = [1,1.2,1.5,2,3];
 
-    function showToast(message) {
-      toast.textContent = message;
+    function showToast(msg, color) {
+      toast.textContent = msg;
       toast.style.opacity = "1";
+      if (color) toast.style.color = color; else toast.style.color = "#fff";
       clearTimeout(showToast._t);
-      showToast._t = setTimeout(() => toast.style.opacity = "0", 1400);
+      showToast._t = setTimeout(() => toast.style.opacity = "0", 2000);
     }
 
-    function showError(message) {
-      errorBox.textContent = message;
-      errorBox.style.display = "block";
-      console.error(message);
-    }
-
+    // --- Pixi setup ---
     const app = new Application();
     await app.init({ resizeTo: window, background: "#0b1020", antialias: true });
     document.body.appendChild(app.canvas);
@@ -120,12 +181,12 @@
     app.stage.addChild(world);
 
     const floor = new Graphics();
-    function redrawFloor(width, height) {
+    function redrawFloor(w, h) {
       floor.clear();
-      floor.rect(0, 0, width, height).fill(0x101933);
-      for (let x = 0; x <= width; x += 64) floor.moveTo(x, 0).lineTo(x, height);
-      for (let y = 0; y <= height; y += 64) floor.moveTo(0, y).lineTo(width, y);
-      floor.stroke({ color: 0x1a2850, width: 1 });
+      floor.rect(0,0,w,h).fill(0x101933);
+      for (let x=0;x<=w;x+=64) floor.moveTo(x,0).lineTo(x,h);
+      for (let y=0;y<=h;y+=64) floor.moveTo(0,y).lineTo(w,y);
+      floor.stroke({color:0x1a2850,width:1});
     }
     world.addChild(floor);
 
@@ -136,534 +197,528 @@
     const clientProjectiles = new Map();
     const effects = [];
 
-    // --- Player sprite ---
+    // --- Mouse tracking ---
+    let mouseWorldX = 0, mouseWorldY = 0;
+    app.canvas.addEventListener("mousemove", (e) => {
+      mouseWorldX = e.clientX - world.x;
+      mouseWorldY = e.clientY - world.y;
+    });
+
+    // --- Weapon sprite colors ---
+    const WEAPON_SPRITE_COLORS = {
+      sword: 0xcccccc, hammer: 0x888888, bow: 0x8b5e3c,
+      staff: 0x9b59b6, pistol: 0x444444, shotgun: 0x333333, arcaneOrb: 0x00ccff
+    };
+
+    function makeWeaponGraphic(weaponType, rarity) {
+      const g = new Graphics();
+      const baseColor = WEAPON_SPRITE_COLORS[weaponType] || 0xcccccc;
+      const rarityColor = RARITY_HEX[rarity] || 0xffffff;
+      switch (weaponType) {
+        case "sword":
+          g.rect(14,-2,20,4).fill(baseColor).rect(10,-4,6,8).fill(0xc28b2c);
+          if (rarity > 0) g.rect(14,-2,20,4).stroke({color:rarityColor,width:1});
+          break;
+        case "hammer":
+          g.rect(12,-2,14,4).fill(0x8b5e3c).rect(24,-8,10,16).fill(baseColor);
+          if (rarity > 0) g.rect(24,-8,10,16).stroke({color:rarityColor,width:1});
+          break;
+        case "bow":
+          g.moveTo(10,-10).quadraticCurveTo(22,0,10,10).stroke({color:baseColor,width:2});
+          g.moveTo(10,-8).lineTo(10,8).stroke({color:0xc28b2c,width:1});
+          break;
+        case "staff":
+          g.rect(10,-2,24,3).fill(0x8b5e3c).circle(34,0,5).fill(baseColor);
+          if (rarity > 0) g.circle(34,0,6).stroke({color:rarityColor,width:1});
+          break;
+        case "pistol":
+          g.rect(10,-3,14,6).fill(baseColor).rect(10,3,6,6).fill(0x555555);
+          break;
+        case "shotgun":
+          g.rect(8,-3,22,6).fill(baseColor).rect(8,3,8,5).fill(0x555555);
+          g.circle(30,0,2).fill(0xff8800);
+          break;
+        case "arcaneOrb":
+          g.circle(18,0,7).fill({color:baseColor,alpha:0.7});
+          g.circle(18,0,9).stroke({color:rarityColor,width:1.5});
+          break;
+      }
+      return g;
+    }
+
     function makePlayer(label, color) {
       const c = new Container();
-      const body = new Graphics()
-        .circle(0, 0, 16).fill(color)
-        .circle(0, -3, 6).fill(0xffffff);
-      const sword = new Graphics()
-        .rect(16, -2, 18, 4).fill(0xf7f7f7)
-        .rect(12, -4, 6, 8).fill(0xc28b2c);
-      const text = new Text({
-        text: label,
-        style: new TextStyle({ fill: 0xffffff, fontSize: 12, fontWeight: "600" })
-      });
-      text.anchor.set(0.5);
-      text.y = -28;
-      c.addChild(body, sword, text);
-      c._sword = sword;
+      const body = new Graphics().circle(0,0,16).fill(color).circle(0,-3,6).fill(0xffffff);
+      const weapon = makeWeaponGraphic("sword", 0);
+      const text = new Text({ text: label, style: new TextStyle({ fill:0xffffff, fontSize:12, fontWeight:"600" }) });
+      text.anchor.set(0.5); text.y = -28;
+      c.addChild(body, weapon, text);
+      c._weapon = weapon;
+      c._body = body;
+      c._label = text;
       return c;
     }
 
-    // --- Enemy sprites by type ---
+    function updatePlayerWeapon(sprite, weaponType, rarity) {
+      if (sprite._curWeapon === `${weaponType}_${rarity}`) return;
+      sprite._curWeapon = `${weaponType}_${rarity}`;
+      const idx = sprite.getChildIndex(sprite._weapon);
+      sprite.removeChild(sprite._weapon);
+      sprite._weapon.destroy();
+      const newW = makeWeaponGraphic(weaponType, rarity);
+      sprite.addChildAt(newW, idx);
+      sprite._weapon = newW;
+    }
+
+    // --- Enemies ---
     const ENEMY_COLORS = {
-      slime: 0x6bff6b, skeleton: 0xd4d4d4, archer: 0x8b5e3c, wolf: 0x888888,
-      golem: 0x8b7355, necromancer: 0x9b59b6, creeper: 0xff4444, sorcerer: 0x3498db,
+      slime:0x6bff6b, skeleton:0xd4d4d4, archer:0x8b5e3c, wolf:0x888888,
+      golem:0x8b7355, necromancer:0x9b59b6, creeper:0xff4444, sorcerer:0x3498db,
     };
 
     function makeEnemy(enemyType, isBoss) {
       const c = new Container();
       const color = ENEMY_COLORS[enemyType] || 0xff6b6b;
       if (isBoss) c.scale.set(1.5);
-
       let body;
-      switch (enemyType) {
-        case "slime":
-          body = new Graphics().ellipse(0, 2, 14, 10).fill(color).circle(-4, -2, 2).fill(0xffffff).circle(4, -2, 2).fill(0xffffff);
-          break;
-        case "skeleton":
-          body = new Graphics().rect(-6, -14, 12, 28).fill(color).circle(-3, -8, 2).fill(0x333333).circle(3, -8, 2).fill(0x333333);
-          break;
-        case "archer":
-          body = new Graphics().rect(-6, -14, 12, 28).fill(color).rect(8, -10, 3, 20).fill(0x654321);
-          break;
-        case "wolf":
-          body = new Graphics().ellipse(0, 0, 16, 10).fill(color).moveTo(14, -4).lineTo(22, -8).lineTo(14, 0).fill(color);
-          break;
-        case "golem":
-          body = new Graphics().roundRect(-16, -16, 32, 32, 4).fill(color);
-          break;
-        case "necromancer":
-          body = new Graphics().moveTo(0, -16).lineTo(12, 12).lineTo(-12, 12).closePath().fill(color).circle(0, -4, 3).fill(0x00ff00);
-          break;
-        case "creeper":
-          body = new Graphics().roundRect(-10, -14, 20, 28, 6).fill(color).circle(-3, -6, 2).fill(0x000000).circle(3, -6, 2).fill(0x000000);
-          break;
-        case "sorcerer":
-          body = new Graphics().circle(0, 0, 12).fill(color).circle(0, -14, 6).fill(0x2980b9);
-          break;
-        default:
-          body = new Graphics().roundRect(-14, -12, 28, 24, 8).fill(color);
+      switch(enemyType) {
+        case "slime": body = new Graphics().ellipse(0,2,14,10).fill(color).circle(-4,-2,2).fill(0xffffff).circle(4,-2,2).fill(0xffffff); break;
+        case "skeleton": body = new Graphics().rect(-6,-14,12,28).fill(color).circle(-3,-8,2).fill(0x333).circle(3,-8,2).fill(0x333); break;
+        case "archer": body = new Graphics().rect(-6,-14,12,28).fill(color).rect(8,-10,3,20).fill(0x654321); break;
+        case "wolf": body = new Graphics().ellipse(0,0,16,10).fill(color).moveTo(14,-4).lineTo(22,-8).lineTo(14,0).fill(color); break;
+        case "golem": body = new Graphics().roundRect(-16,-16,32,32,4).fill(color); break;
+        case "necromancer": body = new Graphics().moveTo(0,-16).lineTo(12,12).lineTo(-12,12).closePath().fill(color).circle(0,-4,3).fill(0x00ff00); break;
+        case "creeper": body = new Graphics().roundRect(-10,-14,20,28,6).fill(color).circle(-3,-6,2).fill(0x000).circle(3,-6,2).fill(0x000); break;
+        case "sorcerer": body = new Graphics().circle(0,0,12).fill(color).circle(0,-14,6).fill(0x2980b9); break;
+        default: body = new Graphics().roundRect(-14,-12,28,24,8).fill(color);
       }
-
-      const hpBg = new Graphics().rect(-18, -24, 36, 4).fill(0x000000, 0.45);
+      const hpBg = new Graphics().rect(-18,-24,36,4).fill(0x000000,0.45);
       const hpFillBar = new Graphics();
       c.addChild(body, hpBg, hpFillBar);
       c._hpFillBar = hpFillBar;
       return c;
     }
 
-    function makeFloatingText(textValue) {
-      return new Text({
-        text: textValue,
-        style: new TextStyle({ fill: 0xffffff, fontSize: 12, fontWeight: "700", stroke: { color: 0x000000, width: 3 } })
-      });
+    function makeFloatingText(v) {
+      return new Text({ text:v, style: new TextStyle({fill:0xffffff,fontSize:12,fontWeight:"700",stroke:{color:0x000000,width:3}}) });
     }
-
     function updateEnemyBar(sprite, enemy) {
       sprite._hpFillBar.clear();
-      const ratio = Math.max(0, enemy.hp / Math.max(1, enemy.maxHp));
-      sprite._hpFillBar.rect(-18, -24, 36 * ratio, 4).fill(0x80ff88);
+      const r = Math.max(0, enemy.hp / Math.max(1, enemy.maxHp));
+      sprite._hpFillBar.rect(-18,-24,36*r,4).fill(0x80ff88);
     }
 
     const keys = Object.create(null);
-    window.addEventListener("keydown", (e) => {
-      keys[e.key.toLowerCase()] = true;
-      if (e.code === "Space") e.preventDefault();
-    });
-    window.addEventListener("keyup", (e) => {
-      keys[e.key.toLowerCase()] = false;
-    });
+    window.addEventListener("keydown", e => { keys[e.key.toLowerCase()] = true; if (e.code === "Space") e.preventDefault(); });
+    window.addEventListener("keyup", e => { keys[e.key.toLowerCase()] = false; });
 
+    // --- Name screen ---
     let room = null;
+    const nameScreen = document.getElementById("nameScreen");
+    const nameInput = document.getElementById("nameInput");
+    const nameBtn = document.getElementById("nameBtn");
 
-    try {
-      const protocol = location.protocol === "https:" ? "https" : "http";
-      const client = new Client(`${protocol}://${location.host}`);
-      room = await client.joinOrCreate("world", { name: `Caua-${Math.floor(Math.random() * 999)}` });
-    } catch (err) {
-      showError(`Falha ao conectar no Colyseus.\n${err?.message || err}`);
-      throw err;
+    async function startGame(playerName) {
+      nameScreen.style.display = "none";
+      document.getElementById("hud").style.display = "block";
+      document.getElementById("invBar").style.display = "flex";
+
+      try {
+        const protocol = location.protocol === "https:" ? "https" : "http";
+        const client = new Client(`${protocol}://${location.host}`);
+        room = await client.joinOrCreate("world", { name: playerName });
+      } catch (err) {
+        errorBox.textContent = `Falha ao conectar.\n${err?.message || err}`;
+        errorBox.style.display = "block";
+        throw err;
+      }
+
+      setupRoom();
     }
 
-    // --- Message handlers ---
-    room.onMessage("level_up", ({ id, level }) => {
-      if (id === room.sessionId) {
-        showToast(`LEVEL UP -> ${level}`);
-        setTimeout(() => showAttrPanel(), 500);
-      }
+    nameBtn.addEventListener("click", () => {
+      const name = nameInput.value.trim().replace(/[^a-zA-Z0-9_\- ]/g, "").slice(0, 16);
+      if (!name) { nameInput.focus(); return; }
+      startGame(name);
     });
+    nameInput.addEventListener("keydown", e => { if (e.key === "Enter") nameBtn.click(); });
 
-    room.onMessage("player_died", ({ id }) => {
-      if (id === room.sessionId) showToast("tu morreu, respawnado");
-    });
+    function setupRoom() {
+      // --- Messages ---
+      room.onMessage("level_up", ({id, level}) => {
+        if (id === room.sessionId) { showToast(`LEVEL UP -> ${level}`); setTimeout(() => showAttrPanel(), 500); }
+      });
+      room.onMessage("player_died", ({id}) => {
+        if (id === room.sessionId) showToast("VOCE MORREU — Progresso perdido!", "#ff5a5a");
+      });
+      room.onMessage("swing", ({id, x, y, dx, dy}) => {
+        const angle = Math.atan2(dy||1, dx||0);
+        const fx = new Graphics();
+        fx.arc(x,y,42,angle-0.7,angle+0.7).stroke({color:id===room.sessionId?0x8bd3ff:0xffc1c1,width:5});
+        fx.life = 0.12; world.addChild(fx); effects.push(fx);
+        const sprite = players.get(id);
+        if (sprite) { sprite._weapon.rotation = 0.7; setTimeout(() => { if (sprite?._weapon) sprite._weapon.rotation = 0; }, 90); }
+      });
+      room.onMessage("wave_start", ({waveNumber, enemyCount}) => showToast(`WAVE ${waveNumber} — ${enemyCount} inimigos`));
+      room.onMessage("wave_complete", ({waveNumber}) => showToast(`WAVE ${waveNumber} COMPLETA!`));
+      room.onMessage("boss_spawn", ({enemyType}) => showToast(`BOSS: ${enemyType.toUpperCase()}!`, "#fbbf24"));
+      room.onMessage("perk_available", ({id}) => { if (id === room.sessionId) showToast("NOVO PERK! (T)", "#c084fc"); });
 
-    room.onMessage("swing", ({ id, x, y, dx, dy }) => {
-      const angle = Math.atan2(dy || 1, dx || 0);
-      const effect = new Graphics();
-      effect.arc(x, y, 42, angle - 0.7, angle + 0.7).stroke({ color: id === room.sessionId ? 0x8bd3ff : 0xffc1c1, width: 5 });
-      effect.life = 0.12;
-      world.addChild(effect);
-      effects.push(effect);
-
-      const sprite = players.get(id);
-      if (sprite) {
-        sprite._sword.rotation = 0.7;
-        setTimeout(() => { if (sprite && sprite._sword) sprite._sword.rotation = 0; }, 90);
-      }
-    });
-
-    room.onMessage("wave_start", ({ waveNumber, enemyCount }) => {
-      showToast(`WAVE ${waveNumber} — ${enemyCount} inimigos`);
-    });
-
-    room.onMessage("wave_complete", ({ waveNumber }) => {
-      showToast(`WAVE ${waveNumber} COMPLETA!`);
-    });
-
-    room.onMessage("boss_spawn", ({ enemyType }) => {
-      showToast(`BOSS: ${enemyType.toUpperCase()}!`);
-    });
-
-    room.onMessage("perk_available", ({ id }) => {
-      if (id === room.sessionId) showToast("NOVO PERK DISPONIVEL! (T)");
-    });
-
-    // --- Projectiles ---
-    const PROJECTILE_COLORS = {
-      bow: 0xc28b2c, staff: 0x9b59b6, pistol: 0xffff00, shotgun: 0xff8800,
-      arcaneOrb: 0x00ffcc, archer: 0x8b5e3c, sorcerer: 0x3498db,
-    };
-
-    room.onMessage("projectile_fired", ({ id, type, x, y, dx, dy, speed, isEnemy }) => {
-      const g = new Graphics();
-      const color = PROJECTILE_COLORS[type] || (isEnemy ? 0xff4444 : 0xffff00);
-      g.circle(0, 0, isEnemy ? 4 : 5).fill(color);
-      g.x = x; g.y = y;
-      g._dx = dx; g._dy = dy; g._speed = speed;
-      g._life = 3;
-      world.addChild(g);
-      clientProjectiles.set(id, g);
-    });
-
-    room.onMessage("projectile_hit", ({ id }) => {
-      const g = clientProjectiles.get(id);
-      if (g) { world.removeChild(g); clientProjectiles.delete(id); }
-    });
-
-    room.onMessage("explosion", ({ x, y, radius }) => {
-      const g = new Graphics();
-      g.circle(x, y, radius).fill({ color: 0xff4400, alpha: 0.4 });
-      g.circle(x, y, radius * 0.6).fill({ color: 0xffaa00, alpha: 0.5 });
-      g.life = 0.3;
-      world.addChild(g);
-      effects.push(g);
-    });
-
-    // --- State callbacks ---
-    const $ = Callbacks.get(room);
-
-    $.onAdd("players", (player, id) => {
-      const sprite = makePlayer(player.name, id === room.sessionId ? 0x58a6ff : 0xdc7dff);
-      world.addChild(sprite);
-      players.set(id, sprite);
-
-      $.onChange(player, () => {
-        sprite.x = player.x;
-        sprite.y = player.y;
+      // Projectiles
+      const PROJ_COLORS = { bow:0xc28b2c, staff:0x9b59b6, pistol:0xffff00, shotgun:0xff8800, arcaneOrb:0x00ffcc, archer:0x8b5e3c, sorcerer:0x3498db };
+      room.onMessage("projectile_fired", ({id, type, x, y, dx, dy, speed, isEnemy}) => {
+        const g = new Graphics();
+        const color = PROJ_COLORS[type] || (isEnemy ? 0xff4444 : 0xffff00);
+        g.circle(0,0,isEnemy?4:5).fill(color);
+        g.x=x; g.y=y; g._dx=dx; g._dy=dy; g._speed=speed; g._life=3;
+        world.addChild(g); clientProjectiles.set(id, g);
+      });
+      room.onMessage("projectile_hit", ({id}) => {
+        const g = clientProjectiles.get(id);
+        if (g) { world.removeChild(g); clientProjectiles.delete(id); }
+      });
+      room.onMessage("explosion", ({x, y, radius}) => {
+        const g = new Graphics();
+        g.circle(x,y,radius).fill({color:0xff4400,alpha:0.4});
+        g.circle(x,y,radius*0.6).fill({color:0xffaa00,alpha:0.5});
+        g.life = 0.3; world.addChild(g); effects.push(g);
       });
 
-      sprite.x = player.x;
-      sprite.y = player.y;
-    });
+      // --- State ---
+      const $ = Callbacks.get(room);
 
-    $.onRemove("players", (_, id) => {
-      const sprite = players.get(id);
-      if (sprite) { world.removeChild(sprite); players.delete(id); }
-    });
-
-    $.onAdd("enemies", (enemy, id) => {
-      const sprite = makeEnemy(enemy.enemyType, enemy.isBoss);
-      world.addChild(sprite);
-      enemies.set(id, sprite);
-      updateEnemyBar(sprite, enemy);
-      sprite.x = enemy.x;
-      sprite.y = enemy.y;
-
-      $.onChange(enemy, () => {
-        sprite.x = enemy.x;
-        sprite.y = enemy.y;
-        updateEnemyBar(sprite, enemy);
+      $.onAdd("players", (player, id) => {
+        const sprite = makePlayer(player.name, id===room.sessionId?0x58a6ff:0xdc7dff);
+        world.addChild(sprite); players.set(id, sprite);
+        $.onChange(player, () => {
+          sprite.x = player.x; sprite.y = player.y;
+          updatePlayerWeapon(sprite, player.equippedWeaponType, player.equippedWeaponRarity);
+        });
+        sprite.x = player.x; sprite.y = player.y;
       });
-    });
+      $.onRemove("players", (_, id) => { const s = players.get(id); if (s) { world.removeChild(s); players.delete(id); } });
 
-    $.onRemove("enemies", (_, id) => {
-      const sprite = enemies.get(id);
-      if (sprite) { world.removeChild(sprite); enemies.delete(id); }
-    });
+      $.onAdd("enemies", (enemy, id) => {
+        const sprite = makeEnemy(enemy.enemyType, enemy.isBoss);
+        world.addChild(sprite); enemies.set(id, sprite);
+        updateEnemyBar(sprite, enemy); sprite.x = enemy.x; sprite.y = enemy.y;
+        $.onChange(enemy, () => { sprite.x = enemy.x; sprite.y = enemy.y; updateEnemyBar(sprite, enemy); });
+      });
+      $.onRemove("enemies", (_, id) => { const s = enemies.get(id); if (s) { world.removeChild(s); enemies.delete(id); } });
 
-    $.onAdd("floatingTexts", (item, id) => {
-      const text = makeFloatingText(item.text);
-      text.x = item.x; text.y = item.y;
-      world.addChild(text);
-      floatingTexts.set(id, text);
+      $.onAdd("floatingTexts", (item, id) => {
+        const t = makeFloatingText(item.text); t.x=item.x; t.y=item.y;
+        world.addChild(t); floatingTexts.set(id, t);
+        $.onChange(item, () => { t.text=item.text; t.x=item.x; t.y=item.y; });
+      });
+      $.onRemove("floatingTexts", (_, id) => { const t = floatingTexts.get(id); if (t) { world.removeChild(t); floatingTexts.delete(id); } });
 
-      $.onChange(item, () => { text.text = item.text; text.x = item.x; text.y = item.y; });
-    });
+      $.onAdd("droppedItems", (item, id) => {
+        const c = new Container();
+        const color = RARITY_HEX[item.weaponRarity] || 0xffffff;
+        c.addChild(new Graphics().circle(0,0,14).fill({color,alpha:0.25}));
+        c.addChild(new Graphics().roundRect(-6,-6,12,12,3).fill(color));
+        const icon = new Text({text:WEAPON_ICONS[item.weaponType]||"?", style:new TextStyle({fontSize:10})});
+        icon.anchor.set(0.5); c.addChild(icon);
+        c.x=item.x; c.y=item.y;
+        world.addChild(c); droppedItems.set(id, c);
+      });
+      $.onRemove("droppedItems", (_, id) => { const c = droppedItems.get(id); if (c) { world.removeChild(c); droppedItems.delete(id); } });
 
-    $.onRemove("floatingTexts", (_, id) => {
-      const text = floatingTexts.get(id);
-      if (text) { world.removeChild(text); floatingTexts.delete(id); }
-    });
+      // --- Attr panel ---
+      setupAttrPanel();
+      setupSkillTree();
+      setupInventoryUI();
 
-    $.onAdd("droppedItems", (item, id) => {
-      const c = new Container();
-      const color = RARITY_COLORS_HEX[item.weaponRarity] || 0xffffff;
-      const glow = new Graphics().circle(0, 0, 14).fill({ color, alpha: 0.25 });
-      const dot = new Graphics().roundRect(-6, -6, 12, 12, 3).fill(color);
-      c.addChild(glow, dot);
-      c.x = item.x; c.y = item.y;
-      world.addChild(c);
-      droppedItems.set(id, c);
-    });
+      // --- Game loop ---
+      let sendTimer = 0, attackDown = false, aimTimer = 0;
 
-    $.onRemove("droppedItems", (_, id) => {
-      const c = droppedItems.get(id);
-      if (c) { world.removeChild(c); droppedItems.delete(id); }
-    });
+      app.ticker.add((ticker) => {
+        const dt = ticker.deltaMS / 1000;
+        const me = room.state.players?.get(room.sessionId);
+        const ww = room.state.worldWidth || 1600;
+        const wh = room.state.worldHeight || 1200;
+        redrawFloor(ww, wh);
 
-    // --- Attribute Panel ---
+        let dx=0, dy=0;
+        if (keys["w"]||keys["arrowup"]) dy-=1;
+        if (keys["s"]||keys["arrowdown"]) dy+=1;
+        if (keys["a"]||keys["arrowleft"]) dx-=1;
+        if (keys["d"]||keys["arrowright"]) dx+=1;
+        if (dx||dy) { const l=Math.hypot(dx,dy); dx/=l; dy/=l; }
+
+        if (keys[" "]||keys["space"]) { if (!attackDown) { room.send("attack"); attackDown=true; } } else attackDown=false;
+
+        // Pickup E
+        if (keys["e"]) { if (!keys._e) { keys._e=true; pickupNearest(me); } } else keys._e=false;
+        // Drop Q
+        if (keys["q"]) { if (!keys._q) { keys._q=true; room.send("drop_weapon"); } } else keys._q=false;
+        // Swap 1-5
+        for (let i=1;i<=5;i++) {
+          if (keys[String(i)]) { if (!keys[`_${i}`]) { keys[`_${i}`]=true; room.send("swap_weapon",{slot:i-1}); } } else keys[`_${i}`]=false;
+        }
+        // Attr P
+        if (keys["p"]) { if (!keys._p) { keys._p=true; toggleAttrPanel(); } } else keys._p=false;
+        // Tree T
+        if (keys["t"]) { if (!keys._t) { keys._t=true; toggleSkillTree(); } } else keys._t=false;
+
+        sendTimer += dt;
+        if (sendTimer >= 1/20) { sendTimer=0; room.send("move",{x:dx,y:dy}); }
+
+        // Send aim direction
+        aimTimer += dt;
+        if (aimTimer >= 1/15 && me) {
+          aimTimer = 0;
+          const adx = mouseWorldX - me.x;
+          const ady = mouseWorldY - me.y;
+          const al = Math.hypot(adx, ady) || 1;
+          room.send("aim", { x: adx/al, y: ady/al });
+        }
+
+        if (me) {
+          hpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
+          xpText.textContent = `${me.xp} / ${me.xpToNext}`;
+          levelText.textContent = String(me.level);
+          hpFill.style.width = `${(me.hp/me.maxHp)*100}%`;
+          xpFill.style.width = `${(me.xp/me.xpToNext)*100}%`;
+          weaponText.textContent = `${RARITY_LABEL[me.equippedWeaponRarity]} ${WEAPON_NAMES[me.equippedWeaponType]||me.equippedWeaponType}`;
+          weaponText.style.color = RARITY_CSS[me.equippedWeaponRarity];
+          document.getElementById("hudStr").textContent = me.str;
+          document.getElementById("hudDex").textContent = me.dex;
+          document.getElementById("hudVit").textContent = me.vit;
+          document.getElementById("hudInt").textContent = me.intel;
+          document.getElementById("hudLck").textContent = me.lck;
+
+          const cx = app.screen.width/2 - me.x;
+          const cy = app.screen.height/2 - me.y;
+          world.x = Math.min(0, Math.max(app.screen.width-ww, cx));
+          world.y = Math.min(0, Math.max(app.screen.height-wh, cy));
+
+          // Update weapon sprite
+          const mySprite = players.get(room.sessionId);
+          if (mySprite) updatePlayerWeapon(mySprite, me.equippedWeaponType, me.equippedWeaponRarity);
+
+          // Crosshair cursor for ranged
+          const isRanged = ["bow","staff","pistol","shotgun","arcaneOrb"].includes(me.equippedWeaponType);
+          app.canvas.style.cursor = isRanged ? "crosshair" : "default";
+
+          // Update inventory UI
+          updateInventoryUI(me);
+        }
+
+        // Wave HUD
+        const wave = room.state.wave;
+        if (wave) {
+          waveText.textContent = String(wave.waveNumber);
+          waveStateText.textContent = wave.state==="pause"?"(pausa)":wave.state==="combat"?"(combate)":"";
+          waveTimerText.textContent = wave.state==="pause"?`${Math.ceil(wave.timer)}s`:"-";
+          enemiesRemainingText.textContent = String(wave.enemiesRemaining);
+        }
+
+        // Client projectiles
+        for (const [id,g] of clientProjectiles) {
+          g.x+=g._dx*g._speed*dt; g.y+=g._dy*g._speed*dt; g._life-=dt;
+          if (g._life<=0) { world.removeChild(g); clientProjectiles.delete(id); }
+        }
+
+        // Effects
+        for (let i=effects.length-1;i>=0;i--) {
+          const fx=effects[i]; fx.life-=dt; fx.alpha=Math.max(0,fx.life/(fx.life+dt+0.01));
+          if (fx.life<=0) { world.removeChild(fx); effects.splice(i,1); }
+        }
+      });
+    }
+
+    function pickupNearest(me) {
+      if (!me || !room.state.droppedItems) return;
+      let nearestId=null, nearestDist=60;
+      room.state.droppedItems.forEach((item, id) => {
+        const d = Math.hypot(item.x-me.x, item.y-me.y);
+        if (d<nearestDist) { nearestDist=d; nearestId=id; }
+      });
+      if (nearestId) room.send("pickup_item", {itemId: nearestId});
+    }
+
+    // --- Attr Panel ---
     const attrPanel = document.getElementById("attrPanel");
-    const attrAvail = document.getElementById("attrAvail");
-    const attrConfirm = document.getElementById("attrConfirm");
-    const attrClose = document.getElementById("attrClose");
-    const pending = { str: 0, dex: 0, vit: 0, intel: 0, lck: 0 };
-
+    const pending = {str:0,dex:0,vit:0,intel:0,lck:0};
     function showAttrPanel() {
-      const me = room.state.players?.get(room.sessionId);
+      const me = room?.state.players?.get(room.sessionId);
       if (!me || me.unspentPoints <= 0) return;
-      Object.keys(pending).forEach(k => pending[k] = 0);
+      Object.keys(pending).forEach(k => pending[k]=0);
       updateAttrDisplay(me);
       attrPanel.style.display = "block";
     }
-
-    function updateAttrDisplay(me) {
-      document.getElementById("attrStr").textContent = me.str + pending.str;
-      document.getElementById("attrDex").textContent = me.dex + pending.dex;
-      document.getElementById("attrVit").textContent = me.vit + pending.vit;
-      document.getElementById("attrInt").textContent = me.intel + pending.intel;
-      document.getElementById("attrLck").textContent = me.lck + pending.lck;
-      const spent = Object.values(pending).reduce((a, b) => a + b, 0);
-      attrAvail.textContent = `(${me.unspentPoints - spent} disponiveis)`;
+    function toggleAttrPanel() {
+      if (attrPanel.style.display === "none") showAttrPanel();
+      else attrPanel.style.display = "none";
     }
-
-    attrPanel.addEventListener("click", (e) => {
-      const btn = e.target.closest("button[data-d]");
-      if (!btn) return;
-      const attr = btn.dataset.d;
-      const spent = Object.values(pending).reduce((a, b) => a + b, 0);
-      const me = room.state.players?.get(room.sessionId);
-      if (!me || spent >= me.unspentPoints) return;
-      pending[attr]++;
-      updateAttrDisplay(me);
-    });
-
-    attrConfirm.addEventListener("click", () => {
-      const total = Object.values(pending).reduce((a, b) => a + b, 0);
-      if (total > 0) room.send("allocate_points", { ...pending });
-      attrPanel.style.display = "none";
-    });
-
-    attrClose.addEventListener("click", () => { attrPanel.style.display = "none"; });
+    function updateAttrDisplay(me) {
+      document.getElementById("attrStr").textContent = me.str+pending.str;
+      document.getElementById("attrDex").textContent = me.dex+pending.dex;
+      document.getElementById("attrVit").textContent = me.vit+pending.vit;
+      document.getElementById("attrInt").textContent = me.intel+pending.intel;
+      document.getElementById("attrLck").textContent = me.lck+pending.lck;
+      const spent = Object.values(pending).reduce((a,b)=>a+b,0);
+      document.getElementById("attrAvail").textContent = `(${me.unspentPoints-spent} disponiveis)`;
+    }
+    function setupAttrPanel() {
+      attrPanel.addEventListener("click", e => {
+        const btn = e.target.closest("button[data-d]"); if (!btn) return;
+        const attr = btn.dataset.d;
+        const spent = Object.values(pending).reduce((a,b)=>a+b,0);
+        const me = room.state.players?.get(room.sessionId);
+        if (!me || spent >= me.unspentPoints) return;
+        pending[attr]++; updateAttrDisplay(me);
+      });
+      document.getElementById("attrConfirm").addEventListener("click", () => {
+        const t = Object.values(pending).reduce((a,b)=>a+b,0);
+        if (t>0) room.send("allocate_points", {...pending});
+        attrPanel.style.display = "none";
+      });
+      document.getElementById("attrClose").addEventListener("click", () => attrPanel.style.display="none");
+    }
 
     // --- Skill Tree ---
     const SKILL_NODES = [
-      { id:"center", name:"Origin", region:"center", cost:0, conns:["c1","d1","u1"], px:0.5, py:0.5, effects:"Start" },
-      { id:"c1", name:"Sharpness I", region:"combat", cost:1, conns:["center","c2","c3"], px:0.38, py:0.42, effects:"+5% melee dmg" },
-      { id:"c2", name:"Precision I", region:"combat", cost:1, conns:["c1","c4","c5"], px:0.28, py:0.35, effects:"+5% ranged dmg" },
-      { id:"c3", name:"Swift Strikes", region:"combat", cost:1, conns:["c1","c6","mc1"], px:0.42, py:0.32, effects:"+5% atk speed" },
-      { id:"c4", name:"Sharpness II", region:"combat", cost:1, conns:["c2","c7"], px:0.2, py:0.28, effects:"+8% melee dmg" },
-      { id:"c5", name:"Precision II", region:"combat", cost:1, conns:["c2","c7","c8"], px:0.3, py:0.22, effects:"+8% ranged dmg" },
-      { id:"c6", name:"Ferocity", region:"combat", cost:1, conns:["c3","c8","c9"], px:0.45, py:0.2, effects:"+8% atk speed" },
-      { id:"c7", name:"Devastation", region:"combat", cost:1, conns:["c4","c5","c10"], px:0.22, py:0.15, effects:"+5% melee+ranged" },
-      { id:"c8", name:"Devastating Crit", region:"combat", cost:1, conns:["c5","c6","c10"], px:0.35, py:0.12, effects:"+50% crit dmg" },
-      { id:"c9", name:"Double Strike", region:"combat", cost:1, conns:["c6","c11"], px:0.5, py:0.1, effects:"15% double atk" },
-      { id:"c10", name:"Sharpness III", region:"combat", cost:1, conns:["c7","c8","c11"], px:0.28, py:0.05, effects:"+10% melee dmg" },
-      { id:"c11", name:"Vampirism", region:"combat", cost:1, conns:["c9","c10"], px:0.42, py:0.03, effects:"5% lifesteal" },
-      { id:"d1", name:"Toughness I", region:"defense", cost:1, conns:["center","d2","d3"], px:0.38, py:0.58, effects:"+5% max HP" },
-      { id:"d2", name:"Regen I", region:"defense", cost:1, conns:["d1","d4","d5"], px:0.28, py:0.65, effects:"+0.5 HP/s" },
-      { id:"d3", name:"Thick Skin", region:"defense", cost:1, conns:["d1","d6","mc1"], px:0.42, py:0.68, effects:"3% dmg reduction" },
-      { id:"d4", name:"Toughness II", region:"defense", cost:1, conns:["d2","d7"], px:0.2, py:0.72, effects:"+8% max HP" },
-      { id:"d5", name:"Regen II", region:"defense", cost:1, conns:["d2","d7","d8"], px:0.3, py:0.78, effects:"+1.0 HP/s" },
-      { id:"d6", name:"Iron Will", region:"defense", cost:1, conns:["d3","d8","d9"], px:0.45, py:0.8, effects:"5% dmg reduction" },
-      { id:"d7", name:"Toughness III", region:"defense", cost:1, conns:["d4","d5","d10"], px:0.22, py:0.85, effects:"+10% max HP" },
-      { id:"d8", name:"Kill Shield", region:"defense", cost:1, conns:["d5","d6","d10"], px:0.35, py:0.88, effects:"+10 HP on kill" },
-      { id:"d9", name:"Fortitude", region:"defense", cost:1, conns:["d6","d11","mc2"], px:0.52, py:0.88, effects:"8% dmg reduction" },
-      { id:"d10", name:"Regen III", region:"defense", cost:1, conns:["d7","d8","d11"], px:0.28, py:0.95, effects:"+1.5 HP/s" },
-      { id:"d11", name:"Second Chance", region:"defense", cost:1, conns:["d9","d10"], px:0.42, py:0.97, effects:"Revive 50% HP/wave" },
-      { id:"u1", name:"Swiftness I", region:"utility", cost:1, conns:["center","u2","u3"], px:0.62, py:0.5, effects:"+5% move speed" },
-      { id:"u2", name:"Collector I", region:"utility", cost:1, conns:["u1","u4","u5"], px:0.72, py:0.42, effects:"+15% pickup radius" },
-      { id:"u3", name:"Fortune I", region:"utility", cost:1, conns:["u1","u6","mc2"], px:0.68, py:0.58, effects:"+3% drop chance" },
-      { id:"u4", name:"Swiftness II", region:"utility", cost:1, conns:["u2","u7"], px:0.8, py:0.35, effects:"+8% move speed" },
-      { id:"u5", name:"Scholar I", region:"utility", cost:1, conns:["u2","u7","u8"], px:0.78, py:0.48, effects:"+10% XP" },
-      { id:"u6", name:"Fortune II", region:"utility", cost:1, conns:["u3","u8","u9"], px:0.75, py:0.65, effects:"+5% drop chance" },
-      { id:"u7", name:"Swiftness III", region:"utility", cost:1, conns:["u4","u5","u10"], px:0.88, py:0.4, effects:"+10% move speed" },
-      { id:"u8", name:"Lucky Drops", region:"utility", cost:1, conns:["u5","u6","u10"], px:0.85, py:0.55, effects:"+1 rarity shift" },
-      { id:"u9", name:"War Aura", region:"utility", cost:1, conns:["u6","u11"], px:0.78, py:0.75, effects:"+10% ally dmg aura" },
-      { id:"u10", name:"Scholar II", region:"utility", cost:1, conns:["u7","u8","u11"], px:0.92, py:0.5, effects:"+15% XP" },
-      { id:"u11", name:"Collector II", region:"utility", cost:1, conns:["u9","u10"], px:0.9, py:0.68, effects:"+30% pickup radius" },
-      { id:"mc1", name:"Berserker", region:"major", cost:2, conns:["c3","d3"], px:0.45, py:0.5, effects:"+30% dmg <30% HP" },
-      { id:"mc2", name:"Scavenger", region:"major", cost:2, conns:["d9","u3"], px:0.6, py:0.72, effects:"+10% drops +1 rarity" },
+      {id:"center",name:"Origin",region:"center",cost:0,conns:["c1","d1","u1"],px:.5,py:.5,effects:"Start"},
+      {id:"c1",name:"Sharpness I",region:"combat",cost:1,conns:["center","c2","c3"],px:.38,py:.42,effects:"+5% melee dmg"},
+      {id:"c2",name:"Precision I",region:"combat",cost:1,conns:["c1","c4","c5"],px:.28,py:.35,effects:"+5% ranged dmg"},
+      {id:"c3",name:"Swift Strikes",region:"combat",cost:1,conns:["c1","c6","mc1"],px:.42,py:.32,effects:"+5% atk speed"},
+      {id:"c4",name:"Sharpness II",region:"combat",cost:1,conns:["c2","c7"],px:.2,py:.28,effects:"+8% melee"},
+      {id:"c5",name:"Precision II",region:"combat",cost:1,conns:["c2","c7","c8"],px:.3,py:.22,effects:"+8% ranged"},
+      {id:"c6",name:"Ferocity",region:"combat",cost:1,conns:["c3","c8","c9"],px:.45,py:.2,effects:"+8% atk speed"},
+      {id:"c7",name:"Devastation",region:"combat",cost:1,conns:["c4","c5","c10"],px:.22,py:.15,effects:"+5% all dmg"},
+      {id:"c8",name:"Devastating Crit",region:"combat",cost:1,conns:["c5","c6","c10"],px:.35,py:.12,effects:"+50% crit dmg"},
+      {id:"c9",name:"Double Strike",region:"combat",cost:1,conns:["c6","c11"],px:.5,py:.1,effects:"15% double atk"},
+      {id:"c10",name:"Sharpness III",region:"combat",cost:1,conns:["c7","c8","c11"],px:.28,py:.05,effects:"+10% melee"},
+      {id:"c11",name:"Vampirism",region:"combat",cost:1,conns:["c9","c10"],px:.42,py:.03,effects:"5% lifesteal"},
+      {id:"d1",name:"Toughness I",region:"defense",cost:1,conns:["center","d2","d3"],px:.38,py:.58,effects:"+5% max HP"},
+      {id:"d2",name:"Regen I",region:"defense",cost:1,conns:["d1","d4","d5"],px:.28,py:.65,effects:"+0.5 HP/s"},
+      {id:"d3",name:"Thick Skin",region:"defense",cost:1,conns:["d1","d6","mc1"],px:.42,py:.68,effects:"3% dmg reduct"},
+      {id:"d4",name:"Toughness II",region:"defense",cost:1,conns:["d2","d7"],px:.2,py:.72,effects:"+8% max HP"},
+      {id:"d5",name:"Regen II",region:"defense",cost:1,conns:["d2","d7","d8"],px:.3,py:.78,effects:"+1.0 HP/s"},
+      {id:"d6",name:"Iron Will",region:"defense",cost:1,conns:["d3","d8","d9"],px:.45,py:.8,effects:"5% dmg reduct"},
+      {id:"d7",name:"Toughness III",region:"defense",cost:1,conns:["d4","d5","d10"],px:.22,py:.85,effects:"+10% HP"},
+      {id:"d8",name:"Kill Shield",region:"defense",cost:1,conns:["d5","d6","d10"],px:.35,py:.88,effects:"+10 HP/kill"},
+      {id:"d9",name:"Fortitude",region:"defense",cost:1,conns:["d6","d11","mc2"],px:.52,py:.88,effects:"8% dmg reduct"},
+      {id:"d10",name:"Regen III",region:"defense",cost:1,conns:["d7","d8","d11"],px:.28,py:.95,effects:"+1.5 HP/s"},
+      {id:"d11",name:"Second Chance",region:"defense",cost:1,conns:["d9","d10"],px:.42,py:.97,effects:"Revive 50%/wave"},
+      {id:"u1",name:"Swiftness I",region:"utility",cost:1,conns:["center","u2","u3"],px:.62,py:.5,effects:"+5% move spd"},
+      {id:"u2",name:"Collector I",region:"utility",cost:1,conns:["u1","u4","u5"],px:.72,py:.42,effects:"+15% pickup"},
+      {id:"u3",name:"Fortune I",region:"utility",cost:1,conns:["u1","u6","mc2"],px:.68,py:.58,effects:"+3% drop"},
+      {id:"u4",name:"Swiftness II",region:"utility",cost:1,conns:["u2","u7"],px:.8,py:.35,effects:"+8% move spd"},
+      {id:"u5",name:"Scholar I",region:"utility",cost:1,conns:["u2","u7","u8"],px:.78,py:.48,effects:"+10% XP"},
+      {id:"u6",name:"Fortune II",region:"utility",cost:1,conns:["u3","u8","u9"],px:.75,py:.65,effects:"+5% drop"},
+      {id:"u7",name:"Swiftness III",region:"utility",cost:1,conns:["u4","u5","u10"],px:.88,py:.4,effects:"+10% move"},
+      {id:"u8",name:"Lucky Drops",region:"utility",cost:1,conns:["u5","u6","u10"],px:.85,py:.55,effects:"+1 rarity"},
+      {id:"u9",name:"War Aura",region:"utility",cost:1,conns:["u6","u11"],px:.78,py:.75,effects:"+10% ally dmg"},
+      {id:"u10",name:"Scholar II",region:"utility",cost:1,conns:["u7","u8","u11"],px:.92,py:.5,effects:"+15% XP"},
+      {id:"u11",name:"Collector II",region:"utility",cost:1,conns:["u9","u10"],px:.9,py:.68,effects:"+30% pickup"},
+      {id:"mc1",name:"Berserker",region:"major",cost:2,conns:["c3","d3"],px:.45,py:.5,effects:"+30% dmg <30%HP"},
+      {id:"mc2",name:"Scavenger",region:"major",cost:2,conns:["d9","u3"],px:.6,py:.72,effects:"+10% drop+rarity"},
     ];
-    const SKILL_MAP = new Map(SKILL_NODES.map(n => [n.id, n]));
-    const REGION_COLORS = { combat: "#ff6b6b", defense: "#4ade80", utility: "#60a5fa", center: "#fbbf24", major: "#c084fc" };
+    const SKILL_MAP = new Map(SKILL_NODES.map(n=>[n.id,n]));
+    const REG_COL = {combat:"#ff6b6b",defense:"#4ade80",utility:"#60a5fa",center:"#fbbf24",major:"#c084fc"};
 
     const skillTreeOverlay = document.getElementById("skillTreeOverlay");
     const skillTreeCanvas = document.getElementById("skillTreeCanvas");
 
     function renderSkillTree(canvas) {
       const ctx = canvas.getContext("2d");
-      const w = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
-      const h = canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1);
-      ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
-      const dw = canvas.clientWidth, dh = canvas.clientHeight;
-      ctx.clearRect(0, 0, dw, dh);
-
+      const dpr = window.devicePixelRatio||1;
+      const dw=canvas.clientWidth, dh=canvas.clientHeight;
+      canvas.width=dw*dpr; canvas.height=dh*dpr;
+      ctx.scale(dpr,dpr); ctx.clearRect(0,0,dw,dh);
       const me = room.state.players?.get(room.sessionId);
-      const activeIds = me ? [...me.activeSkillNodes] : [];
-
-      ctx.strokeStyle = "rgba(255,255,255,0.15)";
-      ctx.lineWidth = 2;
-      for (const node of SKILL_NODES) {
-        const x1 = node.px * dw, y1 = node.py * dh;
-        for (const connId of node.conns) {
-          const other = SKILL_MAP.get(connId);
-          if (other) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(other.px * dw, other.py * dh); ctx.stroke(); }
+      const active = me ? [...me.activeSkillNodes] : [];
+      ctx.strokeStyle="rgba(255,255,255,0.15)"; ctx.lineWidth=2;
+      for (const n of SKILL_NODES) {
+        for (const cid of n.conns) {
+          const o = SKILL_MAP.get(cid);
+          if (o) { ctx.beginPath(); ctx.moveTo(n.px*dw,n.py*dh); ctx.lineTo(o.px*dw,o.py*dh); ctx.stroke(); }
         }
       }
-
-      for (const node of SKILL_NODES) {
-        const x = node.px * dw, y = node.py * dh;
-        const isActive = activeIds.includes(node.id);
-        const color = REGION_COLORS[node.region] || "#fff";
-        const radius = node.cost === 2 ? 18 : 12;
-
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = isActive ? color : "rgba(40,40,60,0.8)";
-        ctx.fill();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = isActive ? 3 : 1;
-        ctx.stroke();
-
-        ctx.fillStyle = "#fff";
-        ctx.font = "11px system-ui";
-        ctx.textAlign = "center";
-        ctx.fillText(node.name, x, y + radius + 14);
-        ctx.font = "9px system-ui";
-        ctx.fillStyle = "#aaa";
-        ctx.fillText(node.effects, x, y + radius + 26);
+      for (const n of SKILL_NODES) {
+        const x=n.px*dw, y=n.py*dh, isA=active.includes(n.id), col=REG_COL[n.region]||"#fff", r=n.cost===2?18:12;
+        ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2);
+        ctx.fillStyle=isA?col:"rgba(40,40,60,0.8)"; ctx.fill();
+        ctx.strokeStyle=col; ctx.lineWidth=isA?3:1; ctx.stroke();
+        ctx.fillStyle="#fff"; ctx.font="11px system-ui"; ctx.textAlign="center";
+        ctx.fillText(n.name,x,y+r+14);
+        ctx.font="9px system-ui"; ctx.fillStyle="#aaa"; ctx.fillText(n.effects,x,y+r+26);
       }
-
       document.getElementById("perkPointsText").textContent = me ? me.perkPoints : "0";
     }
-
     function toggleSkillTree() {
-      if (skillTreeOverlay.style.display === "none") {
-        skillTreeOverlay.style.display = "block";
-        renderSkillTree(skillTreeCanvas);
-      } else {
-        skillTreeOverlay.style.display = "none";
-      }
+      if (skillTreeOverlay.style.display==="none") { skillTreeOverlay.style.display="block"; renderSkillTree(skillTreeCanvas); }
+      else skillTreeOverlay.style.display="none";
+    }
+    function setupSkillTree() {
+      skillTreeCanvas.addEventListener("click", e => {
+        const rect=skillTreeCanvas.getBoundingClientRect();
+        const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+        const w=skillTreeCanvas.clientWidth, h=skillTreeCanvas.clientHeight;
+        for (const n of SKILL_NODES) {
+          if (Math.hypot(mx-n.px*w,my-n.py*h)<20) { room.send("activate_node",{nodeId:n.id}); setTimeout(()=>renderSkillTree(skillTreeCanvas),100); break; }
+        }
+      });
+      document.getElementById("resetTreeBtn").addEventListener("click", () => { room.send("reset_tree"); setTimeout(()=>renderSkillTree(skillTreeCanvas),100); });
+      document.getElementById("closeTreeBtn").addEventListener("click", toggleSkillTree);
     }
 
-    skillTreeCanvas.addEventListener("click", (e) => {
-      const rect = skillTreeCanvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const w = skillTreeCanvas.clientWidth;
-      const h = skillTreeCanvas.clientHeight;
+    // --- Inventory UI ---
+    const invSlots = document.querySelectorAll(".inv-slot");
 
-      for (const node of SKILL_NODES) {
-        const nx = node.px * w, ny = node.py * h;
-        if (Math.hypot(mx - nx, my - ny) < 20) {
-          room.send("activate_node", { nodeId: node.id });
-          setTimeout(() => renderSkillTree(skillTreeCanvas), 100);
-          break;
+    function setupInventoryUI() {
+      invSlots.forEach(el => {
+        el.addEventListener("click", () => {
+          const slot = Number(el.dataset.slot);
+          room.send("swap_weapon", {slot});
+        });
+        el.addEventListener("mouseenter", (e) => showWeaponTooltip(e, Number(el.dataset.slot)));
+        el.addEventListener("mouseleave", () => tooltipEl.style.display="none");
+      });
+    }
+
+    function updateInventoryUI(me) {
+      if (!me?.inventory) return;
+      invSlots.forEach(el => {
+        const idx = Number(el.dataset.slot);
+        const slot = me.inventory[idx];
+        const icon = el.querySelector(".slot-icon");
+        if (slot && slot.weaponRarity >= 0 && slot.weaponType) {
+          icon.textContent = WEAPON_ICONS[slot.weaponType] || "?";
+          el.style.borderColor = RARITY_CSS[slot.weaponRarity];
+        } else {
+          icon.textContent = "";
+          el.style.borderColor = "rgba(255,255,255,.2)";
         }
-      }
-    });
+      });
+    }
 
-    document.getElementById("resetTreeBtn").addEventListener("click", () => {
-      room.send("reset_tree");
-      setTimeout(() => renderSkillTree(skillTreeCanvas), 100);
-    });
+    function showWeaponTooltip(e, slotIdx) {
+      const me = room?.state.players?.get(room.sessionId);
+      if (!me?.inventory) return;
+      const slot = me.inventory[slotIdx];
+      if (!slot || slot.weaponRarity < 0) { tooltipEl.style.display="none"; return; }
+      const wt = slot.weaponType;
+      const wr = slot.weaponRarity;
+      const scalingAttr = {sword:"STR",hammer:"STR",bow:"DEX",staff:"INT",pistol:"DEX",shotgun:"STR",arcaneOrb:"INT"};
+      const attrMap = {STR:me.str, DEX:me.dex, INT:me.intel};
+      const attr = scalingAttr[wt] || "STR";
+      const finalDmg = Math.round((WEAPON_BASE_DMG[wt]||10) * RARITY_MULT[wr] * (1 + (attrMap[attr]||0) * 0.03));
 
-    document.getElementById("closeTreeBtn").addEventListener("click", toggleSkillTree);
-
-    // --- Game loop ---
-    let sendTimer = 0;
-    let attackDown = false;
-
-    app.ticker.add((ticker) => {
-      const dt = ticker.deltaMS / 1000;
-      const me = room.state.players?.get(room.sessionId);
-      const worldWidth = room.state.worldWidth || 1600;
-      const worldHeight = room.state.worldHeight || 1200;
-      redrawFloor(worldWidth, worldHeight);
-
-      let dx = 0, dy = 0;
-      if (keys["w"] || keys["arrowup"]) dy -= 1;
-      if (keys["s"] || keys["arrowdown"]) dy += 1;
-      if (keys["a"] || keys["arrowleft"]) dx -= 1;
-      if (keys["d"] || keys["arrowright"]) dx += 1;
-      if (dx !== 0 || dy !== 0) {
-        const len = Math.hypot(dx, dy);
-        dx /= len; dy /= len;
-      }
-
-      if (keys[" "] || keys["space"]) {
-        if (!attackDown) { room.send("attack"); attackDown = true; }
-      } else { attackDown = false; }
-
-      // Pickup (E)
-      if (keys["e"]) {
-        if (!keys._pickupSent) {
-          keys._pickupSent = true;
-          if (me && room.state.droppedItems) {
-            let nearestId = null, nearestDist = 50;
-            room.state.droppedItems.forEach((item, id) => {
-              const d = Math.hypot(item.x - me.x, item.y - me.y);
-              if (d < nearestDist) { nearestDist = d; nearestId = id; }
-            });
-            if (nearestId) room.send("pickup_item", { itemId: nearestId });
-          }
-        }
-      } else { keys._pickupSent = false; }
-
-      // Attr panel (P)
-      if (keys["p"]) {
-        if (!keys._panelSent) {
-          keys._panelSent = true;
-          if (attrPanel.style.display === "none") showAttrPanel();
-          else attrPanel.style.display = "none";
-        }
-      } else { keys._panelSent = false; }
-
-      // Skill tree (T)
-      if (keys["t"]) {
-        if (!keys._treeSent) { keys._treeSent = true; toggleSkillTree(); }
-      } else { keys._treeSent = false; }
-
-      sendTimer += dt;
-      if (sendTimer >= 1 / 20) {
-        sendTimer = 0;
-        room.send("move", { x: dx, y: dy });
-      }
-
-      if (me) {
-        hpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
-        xpText.textContent = `${me.xp} / ${me.xpToNext}`;
-        levelText.textContent = String(me.level);
-        hpFill.style.width = `${(me.hp / me.maxHp) * 100}%`;
-        xpFill.style.width = `${(me.xp / me.xpToNext) * 100}%`;
-
-        weaponText.textContent = `${RARITY_LABEL[me.equippedWeaponRarity]}${me.equippedWeaponType}`;
-        weaponText.style.color = RARITY_CSS[me.equippedWeaponRarity];
-
-        document.getElementById("hudStr").textContent = me.str;
-        document.getElementById("hudDex").textContent = me.dex;
-        document.getElementById("hudVit").textContent = me.vit;
-        document.getElementById("hudInt").textContent = me.intel;
-        document.getElementById("hudLck").textContent = me.lck;
-
-        const cameraX = app.screen.width / 2 - me.x;
-        const cameraY = app.screen.height / 2 - me.y;
-        world.x = Math.min(0, Math.max(app.screen.width - worldWidth, cameraX));
-        world.y = Math.min(0, Math.max(app.screen.height - worldHeight, cameraY));
-      }
-
-      // Wave HUD
-      const wave = room.state.wave;
-      if (wave) {
-        waveText.textContent = String(wave.waveNumber);
-        waveStateText.textContent = wave.state === "pause" ? "(pausa)" : wave.state === "combat" ? "(combate)" : "";
-        waveTimerText.textContent = wave.state === "pause" ? `${Math.ceil(wave.timer)}s` : "-";
-        enemiesRemainingText.textContent = String(wave.enemiesRemaining);
-      }
-
-      playersText.textContent = String(players.size);
-
-      // Update client projectiles
-      for (const [id, g] of clientProjectiles) {
-        g.x += g._dx * g._speed * dt;
-        g.y += g._dy * g._speed * dt;
-        g._life -= dt;
-        if (g._life <= 0) { world.removeChild(g); clientProjectiles.delete(id); }
-      }
-
-      // Effects cleanup
-      for (let i = effects.length - 1; i >= 0; i--) {
-        const fx = effects[i];
-        fx.life -= dt;
-        fx.alpha = Math.max(0, fx.life / (fx.life + dt + 0.01));
-        if (fx.life <= 0) {
-          world.removeChild(fx);
-          effects.splice(i, 1);
-        }
-      }
-    });
+      tooltipEl.innerHTML = `
+        <div style="color:${RARITY_CSS[wr]};font-weight:700;font-size:14px">${RARITY_LABEL[wr]} ${WEAPON_NAMES[wt]||wt}</div>
+        <div style="margin-top:4px">Dano: <b>${finalDmg}</b></div>
+        <div>Escala: <b>${attr}</b></div>
+        <div style="color:#aaa;margin-top:4px;font-size:11px">${WEAPON_DESC[wt]||""}</div>
+      `;
+      tooltipEl.style.display = "block";
+      tooltipEl.style.left = `${e.clientX+12}px`;
+      tooltipEl.style.top = `${e.clientY-10}px`;
+    }
   </script>
 </body>
 </html>

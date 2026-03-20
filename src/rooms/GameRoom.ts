@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Room, type Client } from "colyseus";
-import { DroppedItem, Enemy, FloatingText, GameState, Player } from "./GameState.js";
+import { DroppedItem, Enemy, FloatingText, GameState, Player, InventorySlot } from "./GameState.js";
 import { type Projectile, WEAPON_DEFS, type WeaponType, computeWeaponDamage, getWeaponCooldown, rollRarity, rollWeaponType } from "./WeaponSystem.js";
 import { ENEMY_DEFS, type EnemyTypeName, getAvailableTypes, scaleStats, getEnemyAI, clearEnemyCooldowns, clearAllCooldowns } from "./EnemyBehaviors.js";
 import { NODE_MAP, canActivateNode, computeBuffs, getTotalCost, type SkillBuffs, emptyBuffs } from "./SkillTree.js";
@@ -15,6 +18,11 @@ const MAX_ENEMIES = 80;
 const DROP_CHANCE_NORMAL = 0.05;
 const PICKUP_RANGE = 40;
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const SAVE_PATH = path.join(__dirname, "../../data/state.json");
+const SAVE_INTERVAL_MS = 30000;
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -28,6 +36,7 @@ export class GameRoom extends Room<{ state: GameState }> {
   maxClients = 32;
 
   private inputByClient = new Map<string, { x: number; y: number }>();
+  private aimByClient = new Map<string, { x: number; y: number }>();
   private lastAttackAt = new Map<string, number>();
   private lastDamageAt = new Map<string, number>();
   private playerBuffs = new Map<string, SkillBuffs>();
@@ -43,10 +52,13 @@ export class GameRoom extends Room<{ state: GameState }> {
   private waveEnemiesSpawned = 0;
   private spawnTimer = 0;
   private waveTimer = 0;
+  private saveInterval?: NodeJS.Timeout;
 
   onCreate() {
     this.setSimulationInterval((deltaTime) => this.update(deltaTime), 1000 / TICK_RATE);
     this.registerMessages();
+    this.loadState();
+    this.saveInterval = setInterval(() => this.saveState(), SAVE_INTERVAL_MS);
   }
 
   private registerMessages() {
@@ -66,6 +78,48 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.onMessage("activate_node", (client, payload) => this.handleActivateNode(client, payload));
     this.onMessage("reset_tree", (client) => this.handleResetTree(client));
     this.onMessage("pickup_item", (client, payload) => this.handlePickupItem(client, payload));
+
+    this.onMessage("aim", (client, payload: { x?: number; y?: number } | undefined) => {
+      const x = Number(payload?.x) || 0;
+      const y = Number(payload?.y) || 1;
+      const len = Math.hypot(x, y) || 1;
+      this.aimByClient.set(client.sessionId, { x: x / len, y: y / len });
+      const player = this.state.players.get(client.sessionId);
+      if (player) { player.aimX = x / len; player.aimY = y / len; }
+    });
+
+    this.onMessage("swap_weapon", (client, payload: { slot?: number } | undefined) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const slot = Number(payload?.slot);
+      if (slot < 0 || slot >= 5 || !Number.isInteger(slot)) return;
+      const invSlot = player.inventory[slot];
+      if (!invSlot || invSlot.weaponRarity < 0) return;
+      // Swap equipped with inventory slot
+      const oldType = player.equippedWeaponType;
+      const oldRarity = player.equippedWeaponRarity;
+      player.equippedWeaponType = invSlot.weaponType;
+      player.equippedWeaponRarity = invSlot.weaponRarity;
+      invSlot.weaponType = oldType;
+      invSlot.weaponRarity = oldRarity;
+    });
+
+    this.onMessage("drop_weapon", (client) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      // Drop current weapon, revert to fists (sword common)
+      if (player.equippedWeaponType === "sword" && player.equippedWeaponRarity === 0) return;
+      const item = new DroppedItem();
+      item.id = `d${this.dropSeq++}`;
+      item.x = player.x;
+      item.y = player.y;
+      item.weaponType = player.equippedWeaponType;
+      item.weaponRarity = player.equippedWeaponRarity;
+      item.ttl = 30;
+      this.state.droppedItems.set(item.id, item);
+      player.equippedWeaponType = "sword";
+      player.equippedWeaponRarity = 0;
+    });
   }
 
   // --- Attack ---
@@ -114,8 +168,16 @@ export class GameRoom extends Room<{ state: GameState }> {
 
     const finalDamage = Math.round(baseDamage * critMultiplier * (1 + (categoryBonus + berserkerBonus + allyAuraBonus) / 100));
 
-    const dx = player.lastMoveX || 0;
-    const dy = player.lastMoveY || 1;
+    // Melee uses movement direction, ranged uses mouse aim
+    let dx: number, dy: number;
+    if (def.projectileSpeed === 0) {
+      dx = player.lastMoveX || 0;
+      dy = player.lastMoveY || 1;
+    } else {
+      const aim = this.aimByClient.get(client.sessionId) ?? { x: 0, y: 1 };
+      dx = aim.x;
+      dy = aim.y;
+    }
 
     if (def.projectileSpeed === 0) {
       // Melee attack
@@ -292,8 +354,36 @@ export class GameRoom extends Room<{ state: GameState }> {
     const pickupRange = PICKUP_RANGE * (1 + buffs.pickupRadiusPercent / 100);
     if (distance(player, item) > pickupRange) return;
 
-    player.equippedWeaponType = item.weaponType;
-    player.equippedWeaponRarity = item.weaponRarity;
+    // Try to put in first empty inventory slot
+    let placed = false;
+    for (let i = 0; i < 5; i++) {
+      if (player.inventory[i] && player.inventory[i].weaponRarity < 0) {
+        player.inventory[i].weaponType = item.weaponType;
+        player.inventory[i].weaponRarity = item.weaponRarity;
+        placed = true;
+        break;
+      }
+    }
+
+    if (!placed) {
+      // Inventory full — swap with equipped
+      const oldType = player.equippedWeaponType;
+      const oldRarity = player.equippedWeaponRarity;
+      player.equippedWeaponType = item.weaponType;
+      player.equippedWeaponRarity = item.weaponRarity;
+      // Drop old weapon
+      if (oldType !== "sword" || oldRarity !== 0) {
+        const drop = new DroppedItem();
+        drop.id = `d${this.dropSeq++}`;
+        drop.x = player.x;
+        drop.y = player.y;
+        drop.weaponType = oldType;
+        drop.weaponRarity = oldRarity;
+        drop.ttl = 30;
+        this.state.droppedItems.set(drop.id, drop);
+      }
+    }
+
     this.state.droppedItems.delete(itemId);
   }
 
@@ -320,6 +410,11 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.x = 300 + Math.random() * 1000;
     player.y = 250 + Math.random() * 700;
     player.activeSkillNodes.push("center");
+    // Initialize 5 empty inventory slots
+    for (let i = 0; i < 5; i++) {
+      const slot = new InventorySlot();
+      player.inventory.push(slot);
+    }
 
     this.state.players.set(client.sessionId, player);
     this.inputByClient.set(client.sessionId, { x: 0, y: 0 });
@@ -335,6 +430,7 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.players.delete(client.sessionId);
     this.inputByClient.delete(client.sessionId);
     this.lastAttackAt.delete(client.sessionId);
+    this.aimByClient.delete(client.sessionId);
     this.playerBuffs.delete(client.sessionId);
     this.secondChanceUsed.delete(client.sessionId);
     for (const key of [...this.lastDamageAt.keys()]) {
@@ -342,7 +438,10 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
   }
 
-  onDispose() {}
+  onDispose() {
+    if (this.saveInterval) clearInterval(this.saveInterval);
+    this.saveState();
+  }
 
   // --- Main update loop ---
   private update(deltaTime: number) {
@@ -573,11 +672,36 @@ export class GameRoom extends Room<{ state: GameState }> {
         return;
       }
 
-      // Normal death: respawn with XP penalty
-      player.hp = player.maxHp;
+      // PERMADEATH: lose everything, restart from scratch
+      player.hp = 100;
+      player.maxHp = 100;
+      player.level = 1;
+      player.xp = 0;
+      player.xpToNext = 40;
+      player.str = 0;
+      player.dex = 0;
+      player.vit = 0;
+      player.intel = 0;
+      player.lck = 0;
+      player.unspentPoints = 0;
+      player.perkPoints = 0;
+      player.equippedWeaponType = "sword";
+      player.equippedWeaponRarity = 0;
+      player.activeSkillNodes.clear();
+      player.activeSkillNodes.push("center");
+      player.moveSpeed = 180;
+      player.critChance = 0;
+      player.hpRegen = 0;
+      // Clear inventory
+      for (let i = 0; i < 5; i++) {
+        if (player.inventory[i]) {
+          player.inventory[i].weaponType = "";
+          player.inventory[i].weaponRarity = -1;
+        }
+      }
       player.x = 300 + Math.random() * 1000;
       player.y = 250 + Math.random() * 700;
-      player.xp = Math.max(0, player.xp - 20);
+      this.recomputeBuffs(player.id, player);
       this.broadcast("player_died", { id: player.id });
     }
   }
@@ -779,5 +903,63 @@ export class GameRoom extends Room<{ state: GameState }> {
     ft.y = y;
     ft.ttl = 0.85;
     this.state.floatingTexts.set(ft.id, ft);
+  }
+
+  private saveState() {
+    try {
+      const data = {
+        waveNumber: this.state.wave.waveNumber,
+        waveState: this.state.wave.state,
+        enemies: [...this.state.enemies.values()].map(e => ({
+          id: e.id, x: e.x, y: e.y, hp: e.hp, maxHp: e.maxHp,
+          speed: e.speed, xpReward: e.xpReward, enemyType: e.enemyType,
+          isBoss: e.isBoss, damage: e.damage,
+        })),
+        drops: [...this.state.droppedItems.values()].map(d => ({
+          id: d.id, x: d.x, y: d.y, weaponType: d.weaponType,
+          weaponRarity: d.weaponRarity, ttl: d.ttl,
+        })),
+        enemySeq: this.enemySeq,
+        dropSeq: this.dropSeq,
+      };
+      const dir = path.dirname(SAVE_PATH);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(SAVE_PATH, JSON.stringify(data));
+    } catch (err) {
+      console.error("Failed to save state:", err);
+    }
+  }
+
+  private loadState() {
+    try {
+      if (!fs.existsSync(SAVE_PATH)) return;
+      const raw = fs.readFileSync(SAVE_PATH, "utf-8");
+      const data = JSON.parse(raw);
+
+      this.state.wave.waveNumber = data.waveNumber ?? 0;
+      this.state.wave.state = data.waveState ?? "waiting";
+      this.enemySeq = data.enemySeq ?? 1;
+      this.dropSeq = data.dropSeq ?? 1;
+
+      if (data.enemies) {
+        for (const e of data.enemies) {
+          const enemy = new Enemy();
+          Object.assign(enemy, e);
+          this.state.enemies.set(enemy.id, enemy);
+        }
+      }
+
+      if (data.drops) {
+        for (const d of data.drops) {
+          const item = new DroppedItem();
+          Object.assign(item, d);
+          this.state.droppedItems.set(item.id, item);
+        }
+      }
+
+      console.log(`Loaded state: wave ${data.waveNumber}, ${data.enemies?.length ?? 0} enemies, ${data.drops?.length ?? 0} drops`);
+    } catch (err) {
+      console.error("Failed to load state:", err);
+    }
   }
 }

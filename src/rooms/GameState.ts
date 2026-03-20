@@ -16,6 +16,11 @@ export class DroppedItem extends Schema {
   @type("number") ttl = 30;
 }
 
+export class InventorySlot extends Schema {
+  @type("string") weaponType = "";
+  @type("number") weaponRarity = -1; // -1 = empty slot
+}
+
 export class Player extends Schema {
   @type("string") id = "";
   @type("string") name = "";
@@ -43,6 +48,12 @@ export class Player extends Schema {
   // Weapon
   @type("string") equippedWeaponType = "sword";
   @type("number") equippedWeaponRarity = 0;
+
+  // Inventory (5 slots)
+  @type([InventorySlot]) inventory = new ArraySchema<InventorySlot>();
+  // Aim direction (mouse)
+  @type("number") aimX = 0;
+  @type("number") aimY = 1;
 
   // Skill tree
   @type(["string"]) activeSkillNodes = new ArraySchema<string>();
