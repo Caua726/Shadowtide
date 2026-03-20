@@ -2,10 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Room, type Client } from "colyseus";
-import { DroppedItem, Enemy, FloatingText, GameState, Player, InventorySlot } from "./GameState.js";
+import { DroppedItem, Enemy, FloatingText, GameState, Player, InventorySlot, SpellSlot, DroppedSpell } from "./GameState.js";
 import { type Projectile, WEAPON_DEFS, type WeaponType, computeWeaponDamage, getWeaponCooldown, rollRarity, rollWeaponType } from "./WeaponSystem.js";
 import { ENEMY_DEFS, type EnemyTypeName, getAvailableTypes, scaleStats, getEnemyAI, clearEnemyCooldowns, clearAllCooldowns } from "./EnemyBehaviors.js";
 import { NODE_MAP, canActivateNode, computeBuffs, getTotalCost, type SkillBuffs, emptyBuffs } from "./SkillTree.js";
+import { type SpellId, SPELL_DEFS, ALL_SPELL_IDS, getSpellDamage, getSpellCooldown, getMaxMana, getManaRegen, rollSpellDrop, type ActiveSpellEffect } from "./SpellSystem.js";
 
 const TICK_RATE = 30;
 const BASE_PLAYER_SPEED = 180;
@@ -16,6 +17,7 @@ const DROP_TTL = 30;
 const MAX_DROPS = 40;
 const MAX_ENEMIES = 80;
 const DROP_CHANCE_NORMAL = 0.05;
+const SPELL_DROP_CHANCE = 0.03; // 3% chance per enemy kill
 const PICKUP_RANGE = 40;
 
 const __filename = fileURLToPath(import.meta.url);
@@ -46,6 +48,9 @@ export class GameRoom extends Room<{ state: GameState }> {
   private dropSeq = 1;
   private projectileSeq = 1;
   private projectiles: Projectile[] = [];
+  private activeSpellEffects: ActiveSpellEffect[] = [];
+  private spellSeq = 1;
+  private droppedSpellSeq = 1;
 
   // Wave system
   private waveEnemyBudget = 0;
@@ -119,6 +124,42 @@ export class GameRoom extends Room<{ state: GameState }> {
       this.state.droppedItems.set(item.id, item);
       player.equippedWeaponType = "sword";
       player.equippedWeaponRarity = 0;
+    });
+
+    this.onMessage("cast_spell", (client, payload: { slot?: number; targetX?: number; targetY?: number } | undefined) => {
+      this.handleCastSpell(client, Number(payload?.slot) || 0, Number(payload?.targetX) || 0, Number(payload?.targetY) || 0);
+    });
+
+    this.onMessage("pickup_spell", (client, payload: { itemId?: string } | undefined) => {
+      const player = this.state.players.get(client.sessionId);
+      if (!player) return;
+      const itemId = payload?.itemId;
+      if (!itemId) return;
+      const item = this.state.droppedSpells.get(itemId);
+      if (!item) return;
+      if (distance(player, item) > PICKUP_RANGE) return;
+
+      // Find first empty spell slot
+      for (let i = 0; i < 5; i++) {
+        const slot = player.spellSlots[i];
+        if (slot && (!slot.spellId || slot.spellRarity < 0)) {
+          slot.spellId = item.spellId;
+          slot.spellRarity = item.spellRarity;
+          slot.cooldownLeft = 0;
+          this.state.droppedSpells.delete(itemId);
+          return;
+        }
+      }
+      // All slots full — replace slot 0
+      const slot = player.spellSlots[0];
+      if (slot) {
+        // Drop old spell
+        this.spawnDroppedSpell(player.x, player.y, slot.spellId as SpellId, slot.spellRarity);
+        slot.spellId = item.spellId;
+        slot.spellRarity = item.spellRarity;
+        slot.cooldownLeft = 0;
+      }
+      this.state.droppedSpells.delete(itemId);
     });
   }
 
@@ -393,6 +434,145 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.droppedItems.delete(itemId);
   }
 
+  private handleCastSpell(client: Client, slotIndex: number, targetX: number, targetY: number) {
+    const player = this.state.players.get(client.sessionId);
+    if (!player) return;
+    if (slotIndex < 0 || slotIndex >= player.maxSpellSlots) return;
+
+    const slot = player.spellSlots[slotIndex];
+    if (!slot || !slot.spellId || slot.spellRarity < 0) return;
+    if (slot.cooldownLeft > 0) return;
+
+    const spellId = slot.spellId as SpellId;
+    const def = SPELL_DEFS[spellId];
+    if (!def) return;
+
+    // Check mana
+    if (player.mana < def.baseManaCost) return;
+    player.mana -= def.baseManaCost;
+
+    // Set cooldown
+    slot.cooldownLeft = getSpellCooldown(spellId, player.intel) / 1000;
+
+    const damage = getSpellDamage(spellId, slot.spellRarity, player.intel);
+    const aim = { x: targetX - player.x, y: targetY - player.y };
+    const aimLen = Math.hypot(aim.x, aim.y) || 1;
+    aim.x /= aimLen; aim.y /= aimLen;
+
+    const effectId = `se${this.spellSeq++}`;
+
+    switch (spellId) {
+      case "fireball": {
+        // Projectile with AoE explosion
+        this.projectiles.push({
+          id: effectId, x: player.x, y: player.y, dx: aim.x, dy: aim.y,
+          speed: def.projectileSpeed, maxRange: 600, distanceTraveled: 0,
+          damage, ownerId: client.sessionId, isEnemy: false, aoeRadius: def.radius,
+        });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, dx: aim.x, dy: aim.y, targetX, targetY, rarity: slot.spellRarity });
+        break;
+      }
+      case "iceRay": {
+        // Projectile that slows
+        this.projectiles.push({
+          id: effectId, x: player.x, y: player.y, dx: aim.x, dy: aim.y,
+          speed: def.projectileSpeed, maxRange: 500, distanceTraveled: 0,
+          damage, ownerId: client.sessionId, isEnemy: false,
+        });
+        // Mark as ice for slow effect — handled in damageEnemy
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: 0, y: 0, damage: 0, radius: 0, remainingTime: def.duration, slowFactor: 0.4 });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, dx: aim.x, dy: aim.y, targetX, targetY, rarity: slot.spellRarity });
+        break;
+      }
+      case "magicShield": {
+        const shieldHp = Math.round(50 * (1 + player.intel * 0.03) * [1, 1.3, 1.7, 2.2, 3.5][slot.spellRarity]);
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: player.x, y: player.y, damage: 0, radius: 0, remainingTime: def.duration, shieldHp });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, rarity: slot.spellRarity });
+        break;
+      }
+      case "heal": {
+        const totalHeal = Math.round(40 * (1 + player.intel * 0.03) * [1, 1.3, 1.7, 2.2, 3.5][slot.spellRarity]);
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: player.x, y: player.y, damage: 0, radius: 0, remainingTime: def.duration, healPerTick: totalHeal / (def.duration * TICK_RATE) });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, rarity: slot.spellRarity });
+        break;
+      }
+      case "meteor": {
+        // Delayed AoE at target position (1s delay)
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: targetX, y: targetY, damage, radius: def.radius, remainingTime: 1.0 });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: targetX, y: targetY, rarity: slot.spellRarity });
+        break;
+      }
+      case "chainLightning": {
+        // Hit nearest enemy, then chain to 4 more within radius
+        let firstTarget: { id: string; enemy: any } | null = null;
+        let bestDist = Infinity;
+        for (const [eid, e] of this.state.enemies) {
+          const d = distance(player, e);
+          if (d < 400 && d < bestDist) { bestDist = d; firstTarget = { id: eid, enemy: e }; }
+        }
+        if (firstTarget) {
+          const buffs = this.playerBuffs.get(client.sessionId) ?? emptyBuffs();
+          const hitEnemies = new Set<string>();
+          hitEnemies.add(firstTarget.id);
+          this.damageEnemy(firstTarget.id, firstTarget.enemy, damage, client.sessionId, buffs);
+          let current = firstTarget.enemy;
+          for (let chain = 0; chain < 4; chain++) {
+            let nextTarget: { id: string; enemy: any } | null = null;
+            let nd = Infinity;
+            for (const [eid, e] of this.state.enemies) {
+              if (hitEnemies.has(eid)) continue;
+              const d = distance(current, e);
+              if (d < def.radius && d < nd) { nd = d; nextTarget = { id: eid, enemy: e }; }
+            }
+            if (!nextTarget) break;
+            hitEnemies.add(nextTarget.id);
+            this.damageEnemy(nextTarget.id, nextTarget.enemy, Math.round(damage * 0.7), client.sessionId, buffs);
+            current = nextTarget.enemy;
+          }
+        }
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, targetX: firstTarget?.enemy?.x ?? targetX, targetY: firstTarget?.enemy?.y ?? targetY, rarity: slot.spellRarity });
+        break;
+      }
+      case "teleport": {
+        // Move player to target position (clamped to world)
+        const clampX = Math.max(24, Math.min(this.state.worldWidth - 24, targetX));
+        const clampY = Math.max(24, Math.min(this.state.worldHeight - 24, targetY));
+        const maxDist = 400; // max teleport distance
+        const dx = clampX - player.x;
+        const dy = clampY - player.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist > maxDist) {
+          player.x += (dx / dist) * maxDist;
+          player.y += (dy / dist) * maxDist;
+        } else {
+          player.x = clampX;
+          player.y = clampY;
+        }
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, rarity: slot.spellRarity });
+        break;
+      }
+      case "summonSpirits": {
+        const spirits = [];
+        for (let i = 0; i < 3; i++) {
+          spirits.push({ x: player.x + (Math.random() - 0.5) * 60, y: player.y + (Math.random() - 0.5) * 60 });
+        }
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: player.x, y: player.y, damage, radius: def.radius, remainingTime: def.duration, spirits });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: player.x, y: player.y, rarity: slot.spellRarity });
+        break;
+      }
+      case "arcaneStorm": {
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: targetX, y: targetY, damage, radius: def.radius, remainingTime: def.duration });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: targetX, y: targetY, rarity: slot.spellRarity });
+        break;
+      }
+      case "blackHole": {
+        this.activeSpellEffects.push({ id: effectId, spellId, casterId: client.sessionId, x: targetX, y: targetY, damage, radius: def.radius, remainingTime: def.duration, pullForce: 180 });
+        this.broadcast("spell_cast", { spellId, effectId, casterId: client.sessionId, x: targetX, y: targetY, rarity: slot.spellRarity });
+        break;
+      }
+    }
+  }
+
   // --- Derived stats ---
   private recomputeBuffs(sessionId: string, player: Player) {
     const buffs = computeBuffs([...player.activeSkillNodes]);
@@ -406,6 +586,8 @@ export class GameRoom extends Room<{ state: GameState }> {
     player.moveSpeed = Math.round(BASE_PLAYER_SPEED * (1 + buffs.moveSpeedPercent / 100));
     player.critChance = player.lck * 0.5; // stored as percentage
     player.hpRegen = 1.0 + player.vit * 0.3 + buffs.hpRegenFlat; // base 1 HP/s passive regen
+    player.maxMana = getMaxMana(player.intel);
+    player.manaRegen = getManaRegen(player.intel);
   }
 
   // --- Join / Leave ---
@@ -421,6 +603,14 @@ export class GameRoom extends Room<{ state: GameState }> {
       const slot = new InventorySlot();
       player.inventory.push(slot);
     }
+    // Initialize 5 spell slots (2 usable by default)
+    for (let i = 0; i < 5; i++) {
+      const slot = new SpellSlot();
+      player.spellSlots.push(slot);
+    }
+    player.maxMana = getMaxMana(0);
+    player.mana = player.maxMana;
+    player.manaRegen = getManaRegen(0);
 
     this.state.players.set(client.sessionId, player);
     this.inputByClient.set(client.sessionId, { x: 0, y: 0 });
@@ -461,6 +651,9 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.updateDrops(dt);
     this.updateFloatingTexts(dt);
     this.updateHpRegen(dt);
+    this.updateSpellEffects(dt);
+    this.updateMana(dt);
+    this.updateSpellCooldowns(dt);
   }
 
   // --- Wave state machine ---
@@ -664,6 +857,20 @@ export class GameRoom extends Room<{ state: GameState }> {
   }
 
   private damagePlayer(player: Player, rawDamage: number) {
+    // Check magic shield
+    for (const eff of this.activeSpellEffects) {
+      if (eff.spellId === "magicShield" && eff.casterId === player.id && eff.shieldHp && eff.shieldHp > 0) {
+        if (rawDamage <= eff.shieldHp) {
+          eff.shieldHp -= rawDamage;
+          this.spawnFloatingText("SHIELD!", player.x, player.y - 20);
+          return;
+        } else {
+          rawDamage -= eff.shieldHp;
+          eff.shieldHp = 0;
+        }
+      }
+    }
+
     const buffs = this.playerBuffs.get(player.id) ?? emptyBuffs();
     const damage = Math.round(rawDamage * (1 - buffs.damageReductionPercent / 100));
     player.hp = Math.max(0, player.hp - damage);
@@ -780,6 +987,10 @@ export class GameRoom extends Room<{ state: GameState }> {
         this.state.droppedItems.delete(id);
       }
     }
+    for (const [id, item] of this.state.droppedSpells) {
+      item.ttl -= dt;
+      if (item.ttl <= 0) this.state.droppedSpells.delete(id);
+    }
   }
 
   private spawnDrop(x: number, y: number, isBoss: boolean, killerId: string) {
@@ -810,6 +1021,29 @@ export class GameRoom extends Room<{ state: GameState }> {
     this.state.droppedItems.set(item.id, item);
   }
 
+  private spawnSpellDrop(x: number, y: number) {
+    const { spellId, rarity } = rollSpellDrop();
+    const item = new DroppedSpell();
+    item.id = `ds${this.droppedSpellSeq++}`;
+    item.x = x;
+    item.y = y;
+    item.spellId = spellId;
+    item.spellRarity = rarity;
+    item.ttl = 30;
+    this.state.droppedSpells.set(item.id, item);
+  }
+
+  private spawnDroppedSpell(x: number, y: number, spellId: SpellId, rarity: number) {
+    const item = new DroppedSpell();
+    item.id = `ds${this.droppedSpellSeq++}`;
+    item.x = x;
+    item.y = y;
+    item.spellId = spellId;
+    item.spellRarity = rarity;
+    item.ttl = 30;
+    this.state.droppedSpells.set(item.id, item);
+  }
+
   // --- Kill enemy ---
   private killEnemy(enemyId: string, killer: Player) {
     const enemy = this.state.enemies.get(enemyId);
@@ -829,6 +1063,11 @@ export class GameRoom extends Room<{ state: GameState }> {
 
     // Drop
     this.spawnDrop(enemy.x, enemy.y, enemy.isBoss, killer.id);
+
+    // Spell drop
+    if (Math.random() < SPELL_DROP_CHANCE) {
+      this.spawnSpellDrop(enemy.x, enemy.y);
+    }
 
     this.state.enemies.delete(enemyId);
     clearEnemyCooldowns(enemyId);
@@ -867,6 +1106,129 @@ export class GameRoom extends Room<{ state: GameState }> {
     }
   }
 
+  private updateSpellEffects(dt: number) {
+    for (let i = this.activeSpellEffects.length - 1; i >= 0; i--) {
+      const eff = this.activeSpellEffects[i];
+      eff.remainingTime -= dt;
+
+      const caster = this.state.players.get(eff.casterId);
+      const buffs = caster ? (this.playerBuffs.get(eff.casterId) ?? emptyBuffs()) : emptyBuffs();
+
+      switch (eff.spellId as SpellId) {
+        case "heal": {
+          if (caster && eff.healPerTick) {
+            caster.hp = Math.min(caster.maxHp, caster.hp + eff.healPerTick);
+          }
+          break;
+        }
+        case "meteor": {
+          if (eff.remainingTime <= 0) {
+            // Explode!
+            for (const [eid, enemy] of this.state.enemies) {
+              if (distance(eff, enemy) <= eff.radius) {
+                this.damageEnemy(eid, enemy, eff.damage, eff.casterId, buffs);
+              }
+            }
+            this.broadcast("spell_effect", { spellId: "meteor", x: eff.x, y: eff.y, radius: eff.radius, phase: "impact" });
+          }
+          break;
+        }
+        case "arcaneStorm": {
+          // Damage every 0.5s
+          if (Math.floor(eff.remainingTime * 2) !== Math.floor((eff.remainingTime + dt) * 2)) {
+            for (const [eid, enemy] of this.state.enemies) {
+              if (distance(eff, enemy) <= eff.radius) {
+                this.damageEnemy(eid, enemy, Math.round(eff.damage * 0.3), eff.casterId, buffs);
+              }
+            }
+          }
+          break;
+        }
+        case "blackHole": {
+          // Pull enemies toward center + damage every 0.5s
+          for (const enemy of this.state.enemies.values()) {
+            const d = distance(eff, enemy);
+            if (d <= eff.radius && d > 5) {
+              const pullX = eff.x - enemy.x;
+              const pullY = eff.y - enemy.y;
+              const len = Math.hypot(pullX, pullY) || 1;
+              const force = (eff.pullForce ?? 180) * dt;
+              enemy.x += (pullX / len) * force;
+              enemy.y += (pullY / len) * force;
+            }
+          }
+          if (Math.floor(eff.remainingTime * 2) !== Math.floor((eff.remainingTime + dt) * 2)) {
+            for (const [eid, enemy] of this.state.enemies) {
+              if (distance(eff, enemy) <= eff.radius) {
+                this.damageEnemy(eid, enemy, Math.round(eff.damage * 0.5), eff.casterId, buffs);
+              }
+            }
+          }
+          break;
+        }
+        case "summonSpirits": {
+          if (eff.spirits) {
+            for (const spirit of eff.spirits) {
+              // Find nearest enemy and move toward it
+              let nearest: any = null;
+              let bestD = Infinity;
+              for (const enemy of this.state.enemies.values()) {
+                const d = Math.hypot(spirit.x - enemy.x, spirit.y - enemy.y);
+                if (d < bestD) { bestD = d; nearest = enemy; }
+              }
+              if (nearest && bestD < eff.radius) {
+                const dx = nearest.x - spirit.x;
+                const dy = nearest.y - spirit.y;
+                const len = Math.hypot(dx, dy) || 1;
+                spirit.x += (dx / len) * 150 * dt;
+                spirit.y += (dy / len) * 150 * dt;
+                // Attack if close
+                if (bestD < 25) {
+                  for (const [eid, e] of this.state.enemies) {
+                    if (e === nearest) {
+                      this.damageEnemy(eid, e, Math.round(eff.damage * dt * 3), eff.casterId, buffs);
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+            this.broadcast("spell_spirits_update", { id: eff.id, spirits: eff.spirits });
+          }
+          break;
+        }
+        case "magicShield": {
+          // Shield tracked in activeSpellEffects, checked in damagePlayer
+          break;
+        }
+      }
+
+      if (eff.remainingTime <= 0) {
+        this.activeSpellEffects.splice(i, 1);
+        this.broadcast("spell_end", { effectId: eff.id, spellId: eff.spellId });
+      }
+    }
+  }
+
+  private updateMana(dt: number) {
+    for (const player of this.state.players.values()) {
+      if (player.mana < player.maxMana) {
+        player.mana = Math.min(player.maxMana, player.mana + player.manaRegen * dt);
+      }
+    }
+  }
+
+  private updateSpellCooldowns(dt: number) {
+    for (const player of this.state.players.values()) {
+      for (let i = 0; i < 5; i++) {
+        const slot = player.spellSlots[i];
+        if (slot && slot.cooldownLeft > 0) {
+          slot.cooldownLeft = Math.max(0, slot.cooldownLeft - dt);
+        }
+      }
+    }
+  }
+
   // --- Floating text ---
   private updateFloatingTexts(dt: number) {
     for (const [id, text] of this.state.floatingTexts) {
@@ -899,6 +1261,9 @@ export class GameRoom extends Room<{ state: GameState }> {
         drops: [...this.state.droppedItems.values()].map(d => ({
           id: d.id, x: d.x, y: d.y, weaponType: d.weaponType,
           weaponRarity: d.weaponRarity, ttl: d.ttl,
+        })),
+        spellDrops: [...this.state.droppedSpells.values()].map(d => ({
+          id: d.id, x: d.x, y: d.y, spellId: d.spellId, spellRarity: d.spellRarity, ttl: d.ttl,
         })),
         enemySeq: this.enemySeq,
         dropSeq: this.dropSeq,
@@ -935,6 +1300,14 @@ export class GameRoom extends Room<{ state: GameState }> {
           const item = new DroppedItem();
           Object.assign(item, d);
           this.state.droppedItems.set(item.id, item);
+        }
+      }
+
+      if (data.spellDrops) {
+        for (const d of data.spellDrops) {
+          const item = new DroppedSpell();
+          Object.assign(item, d);
+          this.state.droppedSpells.set(item.id, item);
         }
       }
 

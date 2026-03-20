@@ -16,9 +16,24 @@ export class DroppedItem extends Schema {
   @type("number") ttl = 30;
 }
 
+export class DroppedSpell extends Schema {
+  @type("string") id = "";
+  @type("number") x = 0;
+  @type("number") y = 0;
+  @type("string") spellId = "";
+  @type("number") spellRarity = 0;
+  @type("number") ttl = 30;
+}
+
 export class InventorySlot extends Schema {
   @type("string") weaponType = "";
   @type("number") weaponRarity = -1; // -1 = empty slot
+}
+
+export class SpellSlot extends Schema {
+  @type("string") spellId = "";      // empty = no spell
+  @type("number") spellRarity = -1;  // -1 = empty
+  @type("number") cooldownLeft = 0;  // seconds remaining
 }
 
 export class Player extends Schema {
@@ -51,6 +66,14 @@ export class Player extends Schema {
 
   // Inventory (5 slots)
   @type([InventorySlot]) inventory = new ArraySchema<InventorySlot>();
+
+  // Spells (5 slots, starts with 2 usable)
+  @type([SpellSlot]) spellSlots = new ArraySchema<SpellSlot>();
+  @type("number") maxSpellSlots = 2;
+  @type("number") mana = 50;
+  @type("number") maxMana = 50;
+  @type("number") manaRegen = 2;
+
   // Aim direction (mouse)
   @type("number") aimX = 0;
   @type("number") aimY = 1;
@@ -90,6 +113,7 @@ export class GameState extends Schema {
   @type({ map: Enemy }) enemies = new MapSchema<Enemy>();
   @type({ map: FloatingText }) floatingTexts = new MapSchema<FloatingText>();
   @type({ map: DroppedItem }) droppedItems = new MapSchema<DroppedItem>();
+  @type({ map: DroppedSpell }) droppedSpells = new MapSchema<DroppedSpell>();
   @type(WaveState) wave = new WaveState();
   @type("number") worldWidth = 1600;
   @type("number") worldHeight = 1200;
