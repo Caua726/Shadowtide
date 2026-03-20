@@ -1,0 +1,1109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RPG Colyseus — 3D</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #0b1020; overflow: hidden; }
+    canvas { display: block; }
+    #hud {
+      position: fixed; left: 14px; top: 14px; z-index: 10; color: #fff;
+      font: 13px/1.4 system-ui, sans-serif; background: rgba(0,0,0,.55);
+      border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 10px 12px;
+      min-width: 220px; backdrop-filter: blur(6px); pointer-events: none;
+    }
+    #hud .bar { width: 200px; height: 10px; background: rgba(255,255,255,.12); border-radius: 999px; overflow: hidden; margin: 3px 0 6px; }
+    #hud .fill { height: 100%; width: 0%; transition: width .15s; }
+    #hpFill { background: linear-gradient(90deg, #ff5a5a, #ff8f8f); }
+    #xpFill { background: linear-gradient(90deg, #58a6ff, #87c2ff); }
+    #toast {
+      position: fixed; right: 14px; top: 14px; z-index: 10; color: #fff; font: 16px system-ui, sans-serif;
+      background: rgba(0,0,0,.45); border-radius: 12px; padding: 10px 12px; opacity: 0; transition: opacity .18s;
+    }
+    #error {
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 10; color: #ffd5d5;
+      background: rgba(88, 0, 0, .55); border: 1px solid rgba(255,255,255,.15); border-radius: 12px; padding: 10px 14px;
+      font: 14px/1.4 system-ui, sans-serif; display: none; max-width: min(90vw, 700px); white-space: pre-wrap;
+    }
+    .attr-row { margin: 4px 0; display: flex; align-items: center; gap: 8px; }
+    .attr-row button { width: 28px; height: 28px; border-radius: 6px; border: 1px solid rgba(255,255,255,.2); background: rgba(255,255,255,.1); color: #fff; cursor: pointer; font-size: 16px; }
+    .attr-row button:hover { background: rgba(255,255,255,.2); }
+    #invBar {
+      position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); z-index: 10;
+      display: flex; gap: 4px; pointer-events: auto;
+    }
+    .inv-slot {
+      width: 48px; height: 48px; border-radius: 8px; background: rgba(0,0,0,.6);
+      border: 2px solid rgba(255,255,255,.2); display: flex; align-items: center; justify-content: center;
+      cursor: pointer; position: relative; font: 11px system-ui, sans-serif; color: #888;
+    }
+    .inv-slot:hover { border-color: rgba(255,255,255,.5); }
+    .inv-slot .slot-key { position: absolute; top: 2px; left: 4px; font-size: 9px; color: #666; }
+    .inv-slot .slot-icon { font-size: 18px; }
+    #tooltip {
+      position: fixed; z-index: 30; background: rgba(0,0,0,.9); border: 1px solid rgba(255,255,255,.25);
+      border-radius: 10px; padding: 10px 14px; color: #fff; font: 12px/1.5 system-ui, sans-serif;
+      pointer-events: none; display: none; max-width: 220px; backdrop-filter: blur(6px);
+    }
+    #nameScreen {
+      position: fixed; inset: 0; z-index: 50; background: rgba(11,16,32,.95);
+      display: flex; align-items: center; justify-content: center; flex-direction: column;
+      color: #fff; font-family: system-ui, sans-serif;
+    }
+    #nameScreen h1 { font-size: 32px; margin-bottom: 20px; }
+    #nameScreen input {
+      width: 260px; padding: 10px 16px; border-radius: 10px; border: 1px solid rgba(255,255,255,.2);
+      background: rgba(255,255,255,.08); color: #fff; font-size: 18px; text-align: center; outline: none;
+    }
+    #nameScreen input:focus { border-color: #58a6ff; }
+    #nameScreen button {
+      margin-top: 14px; padding: 10px 32px; border-radius: 10px; border: none;
+      background: #58a6ff; color: #000; font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    #nameScreen button:hover { background: #87c2ff; }
+  </style>
+</head>
+<body>
+
+  <div id="nameScreen">
+    <h1>RPG Colyseus — 3D</h1>
+    <input id="nameInput" type="text" placeholder="Enter your name..." maxlength="16" autofocus />
+    <button id="nameBtn">Play</button>
+  </div>
+
+  <div id="hud" style="display:none">
+    <div style="font-size:11px;color:#888">WASD move | Space attack | E pickup | Q drop</div>
+    <div style="font-size:11px;color:#888">P attributes | T skills | 1-5 swap weapon</div>
+    <div style="margin-top:6px">HP <span id="hpText">0 / 0</span></div>
+    <div class="bar"><div id="hpFill" class="fill"></div></div>
+    <div>XP <span id="xpText">0 / 0</span></div>
+    <div class="bar"><div id="xpFill" class="fill"></div></div>
+    <div>Lv: <b id="levelText">1</b> | Weapon: <b id="weaponText">Sword</b></div>
+    <div style="font-size:11px;color:#aaa;margin-top:3px">
+      STR:<b id="hudStr">0</b> DEX:<b id="hudDex">0</b> VIT:<b id="hudVit">0</b> INT:<b id="hudInt">0</b> LCK:<b id="hudLck">0</b>
+    </div>
+    <div style="margin-top:6px;border-top:1px solid rgba(255,255,255,.15);padding-top:6px">
+      <div>Wave: <b id="waveText">0</b> <span id="waveStateText" style="color:#888"></span></div>
+      <div>Timer: <b id="waveTimerText">-</b> | Remaining: <b id="enemiesRemainingText">0</b></div>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <div id="error"></div>
+  <div id="tooltip"></div>
+
+  <div id="attrPanel" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:20;background:rgba(0,0,0,.85);border:1px solid rgba(255,255,255,.2);border-radius:16px;padding:20px 28px;color:#fff;font:14px/1.6 system-ui,sans-serif;min-width:280px;backdrop-filter:blur(8px);">
+    <div style="font-size:18px;font-weight:700;margin-bottom:12px">Allocate Points <span id="attrAvail" style="color:#58a6ff"></span></div>
+    <div class="attr-row">STR: <span id="attrStr">0</span> <button data-d="str">+</button></div>
+    <div class="attr-row">DEX: <span id="attrDex">0</span> <button data-d="dex">+</button></div>
+    <div class="attr-row">VIT: <span id="attrVit">0</span> <button data-d="vit">+</button></div>
+    <div class="attr-row">INT: <span id="attrInt">0</span> <button data-d="intel">+</button></div>
+    <div class="attr-row">LCK: <span id="attrLck">0</span> <button data-d="lck">+</button></div>
+    <div style="margin-top:12px;text-align:center">
+      <button id="attrConfirm" style="padding:6px 16px;border-radius:8px;background:#58a6ff;color:#000;border:none;font-weight:700;cursor:pointer">Confirm</button>
+      <button id="attrClose" style="padding:6px 16px;border-radius:8px;background:#333;color:#fff;border:none;cursor:pointer;margin-left:8px">Close</button>
+    </div>
+  </div>
+
+  <div id="skillTreeOverlay" style="display:none;position:fixed;inset:0;z-index:25;background:rgba(0,0,0,.9);">
+    <div style="position:absolute;top:12px;left:50%;transform:translateX(-50%);color:#fff;font:16px system-ui,sans-serif;z-index:26;">
+      Skill Tree — Perks: <b id="perkPointsText">0</b>
+      <button id="resetTreeBtn" style="margin-left:12px;padding:4px 12px;border-radius:6px;background:#ff5a5a;color:#fff;border:none;cursor:pointer;">Reset</button>
+      <button id="closeTreeBtn" style="margin-left:8px;padding:4px 12px;border-radius:6px;background:#333;color:#fff;border:none;cursor:pointer;">Close (T)</button>
+    </div>
+    <canvas id="skillTreeCanvas" style="width:100%;height:100%;"></canvas>
+  </div>
+
+  <div id="invBar" style="display:none">
+    <div class="inv-slot" data-slot="0"><span class="slot-key">1</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="1"><span class="slot-key">2</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="2"><span class="slot-key">3</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="3"><span class="slot-key">4</span><span class="slot-icon"></span></div>
+    <div class="inv-slot" data-slot="4"><span class="slot-key">5</span><span class="slot-icon"></span></div>
+  </div>
+
+  <script type="importmap">
+    { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js" } }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { Client, Callbacks } from "https://cdn.jsdelivr.net/npm/@colyseus/sdk@0.17.35/+esm";
+
+    /* ───── constants ───── */
+    const WORLD_W = 1600, WORLD_H = 1200;
+    const RARITY_CSS  = ["#fff","#4ade80","#60a5fa","#c084fc","#fbbf24"];
+    const RARITY_LABEL= ["Common","Uncommon","Rare","Epic","Legendary"];
+    const RARITY_HEX  = [0xffffff,0x4ade80,0x60a5fa,0xc084fc,0xfbbf24];
+    const WEAPON_ICONS = { sword:"\u2694", hammer:"\ud83d\udd28", bow:"\ud83c\udff9", staff:"\ud83e\uddf9", pistol:"\ud83d\udd2b", shotgun:"\ud83d\udca5", arcaneOrb:"\ud83d\udd2e" };
+    const WEAPON_NAMES = { sword:"Sword", hammer:"Hammer", bow:"Bow", staff:"Staff", pistol:"Pistol", shotgun:"Shotgun", arcaneOrb:"Arcane Orb" };
+    const WEAPON_DESC  = { sword:"Balanced melee. Scales STR.", hammer:"Heavy melee w/ knockback. STR.", bow:"Ranged projectile. DEX.", staff:"Magic AoE. INT.", pistol:"Fast shot, low dmg. DEX.", shotgun:"Cone of 5, devastating close. STR.", arcaneOrb:"Homing projectile. INT." };
+    const WEAPON_BASE_DMG = { sword:14, hammer:24, bow:12, staff:18, pistol:7, shotgun:25, arcaneOrb:10 };
+    const RARITY_MULT = [1,1.2,1.5,2,3];
+    const ENEMY_COLORS = { slime:0x6bff6b, skeleton:0xd4d4d4, archer:0x8b5e3c, wolf:0x888888, golem:0x8b7355, necromancer:0x9b59b6, creeper:0xff4444, sorcerer:0x3498db };
+
+    /* ───── DOM refs ───── */
+    const hpText = document.getElementById("hpText");
+    const xpText = document.getElementById("xpText");
+    const levelText = document.getElementById("levelText");
+    const hpFill = document.getElementById("hpFill");
+    const xpFill = document.getElementById("xpFill");
+    const toast  = document.getElementById("toast");
+    const errorBox = document.getElementById("error");
+    const weaponText = document.getElementById("weaponText");
+    const waveText = document.getElementById("waveText");
+    const waveStateText = document.getElementById("waveStateText");
+    const waveTimerText = document.getElementById("waveTimerText");
+    const enemiesRemainingText = document.getElementById("enemiesRemainingText");
+    const tooltipEl = document.getElementById("tooltip");
+
+    function showToast(msg, color) {
+      toast.textContent = msg;
+      toast.style.opacity = "1";
+      toast.style.color = color || "#fff";
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(() => toast.style.opacity = "0", 2500);
+    }
+
+    /* ───── Three.js scene ───── */
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.9;
+    document.body.appendChild(renderer.domElement);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0b1020);
+    scene.fog = new THREE.FogExp2(0x0b1020, 0.0008);
+
+    const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, 4000);
+    camera.position.set(WORLD_W / 2, 350, WORLD_H / 2 + 400);
+    camera.lookAt(WORLD_W / 2, 0, WORLD_H / 2);
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    /* ───── lighting ───── */
+    const ambient = new THREE.AmbientLight(0x334466, 1.2);
+    scene.add(ambient);
+
+    const dirLight = new THREE.DirectionalLight(0xddeeff, 1.8);
+    dirLight.position.set(400, 600, 300);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.set(2048, 2048);
+    dirLight.shadow.camera.left = -1000; dirLight.shadow.camera.right = 1000;
+    dirLight.shadow.camera.top = 1000;   dirLight.shadow.camera.bottom = -1000;
+    dirLight.shadow.camera.far = 2000;
+    scene.add(dirLight);
+
+    const hemi = new THREE.HemisphereLight(0x223355, 0x111122, 0.6);
+    scene.add(hemi);
+
+    /* ───── ground ───── */
+    function makeGridTexture() {
+      const c = document.createElement("canvas");
+      c.width = 512; c.height = 512;
+      const ctx = c.getContext("2d");
+      ctx.fillStyle = "#101933";
+      ctx.fillRect(0, 0, 512, 512);
+      ctx.strokeStyle = "#1a2850";
+      ctx.lineWidth = 1;
+      const step = 32;
+      for (let x = 0; x <= 512; x += step) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 512); ctx.stroke(); }
+      for (let y = 0; y <= 512; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke(); }
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(WORLD_W / 128, WORLD_H / 128);
+      return tex;
+    }
+    const groundGeo = new THREE.PlaneGeometry(WORLD_W, WORLD_H);
+    const groundMat = new THREE.MeshStandardMaterial({ map: makeGridTexture(), roughness: 0.9, metalness: 0.1 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(WORLD_W / 2, 0, WORLD_H / 2);
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    /* boundary lines */
+    const borderGeo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(0,0.5,0), new THREE.Vector3(WORLD_W,0.5,0),
+      new THREE.Vector3(WORLD_W,0.5,0), new THREE.Vector3(WORLD_W,0.5,WORLD_H),
+      new THREE.Vector3(WORLD_W,0.5,WORLD_H), new THREE.Vector3(0,0.5,WORLD_H),
+      new THREE.Vector3(0,0.5,WORLD_H), new THREE.Vector3(0,0.5,0),
+    ]);
+    scene.add(new THREE.LineSegments(borderGeo, new THREE.LineBasicMaterial({ color: 0x2244aa })));
+
+    /* ───── raycaster for mouse aim ───── */
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    let mouseGroundX = WORLD_W / 2, mouseGroundZ = WORLD_H / 2;
+
+    renderer.domElement.addEventListener("mousemove", (e) => {
+      mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouse, camera);
+      const hit = new THREE.Vector3();
+      raycaster.ray.intersectPlane(groundPlane, hit);
+      if (hit) { mouseGroundX = hit.x; mouseGroundZ = hit.z; }
+    });
+
+    /* ───── sprite text helper ───── */
+    function makeTextSprite(text, opts = {}) {
+      const fontSize = opts.fontSize || 28;
+      const c = document.createElement("canvas");
+      const ctx = c.getContext("2d");
+      ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+      const w = ctx.measureText(text).width + 12;
+      c.width = Math.max(64, Math.ceil(w));
+      c.height = fontSize + 12;
+      ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+      ctx.fillStyle = opts.color || "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, c.width / 2, c.height / 2);
+      const tex = new THREE.CanvasTexture(c);
+      tex.minFilter = THREE.LinearFilter;
+      const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+      const sprite = new THREE.Sprite(mat);
+      sprite.scale.set(c.width * 0.35, c.height * 0.35, 1);
+      return sprite;
+    }
+
+    /* ───── HP bar helper ───── */
+    function makeHPBar(width = 24) {
+      const group = new THREE.Group();
+      const bgGeo = new THREE.PlaneGeometry(width, 3);
+      const bgMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthTest: false });
+      const bg = new THREE.Mesh(bgGeo, bgMat);
+      group.add(bg);
+      const fillGeo = new THREE.PlaneGeometry(width, 3);
+      const fillMat = new THREE.MeshBasicMaterial({ color: 0x80ff88, depthTest: false });
+      const fill = new THREE.Mesh(fillGeo, fillMat);
+      group.add(fill);
+      group._fill = fill;
+      group._width = width;
+      group.renderOrder = 999;
+      return group;
+    }
+
+    function updateHPBar(bar, ratio) {
+      const r = Math.max(0, Math.min(1, ratio));
+      bar._fill.scale.x = r || 0.001;
+      bar._fill.position.x = -bar._width * (1 - r) / 2;
+    }
+
+    /* ───── weapon 3D builders ───── */
+    function makeWeapon3D(weaponType, rarity) {
+      const group = new THREE.Group();
+      const rc = RARITY_HEX[rarity] || 0xffffff;
+      const mat = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.4, metalness: 0.6 });
+      const glow = (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.5, roughness: 0.3 });
+
+      switch (weaponType) {
+        case "sword": {
+          const blade = new THREE.Mesh(new THREE.BoxGeometry(2, 18, 1), mat(0xcccccc));
+          blade.position.y = 9;
+          const guard = new THREE.Mesh(new THREE.BoxGeometry(6, 2, 2), mat(0xc28b2c));
+          group.add(blade, guard);
+          break;
+        }
+        case "hammer": {
+          const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 16, 6), mat(0x8b5e3c));
+          handle.position.y = 8;
+          const head = new THREE.Mesh(new THREE.BoxGeometry(6, 5, 5), mat(0x888888));
+          head.position.y = 16;
+          group.add(handle, head);
+          break;
+        }
+        case "bow": {
+          const curve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, -8, 0), new THREE.Vector3(3, -4, 0),
+            new THREE.Vector3(4, 0, 0), new THREE.Vector3(3, 4, 0), new THREE.Vector3(0, 8, 0)
+          ]);
+          const tubeGeo = new THREE.TubeGeometry(curve, 20, 0.4, 6, false);
+          group.add(new THREE.Mesh(tubeGeo, mat(0x8b5e3c)));
+          const stringGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, -8, 0), new THREE.Vector3(0, 8, 0)]);
+          group.add(new THREE.Line(stringGeo, new THREE.LineBasicMaterial({ color: 0xc28b2c })));
+          break;
+        }
+        case "staff": {
+          const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 22, 6), mat(0x8b5e3c));
+          stick.position.y = 11;
+          const orb = new THREE.Mesh(new THREE.SphereGeometry(2.5, 12, 12), glow(0x9b59b6));
+          orb.position.y = 22;
+          group.add(stick, orb);
+          break;
+        }
+        case "pistol": {
+          const barrel = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 8), mat(0x444444));
+          barrel.position.z = 4;
+          const grip = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), mat(0x555555));
+          grip.position.y = -2.5;
+          group.add(barrel, grip);
+          break;
+        }
+        case "shotgun": {
+          const barrel = new THREE.Mesh(new THREE.BoxGeometry(2, 2.5, 14), mat(0x333333));
+          barrel.position.z = 7;
+          const stock = new THREE.Mesh(new THREE.BoxGeometry(2, 3, 5), mat(0x555555));
+          stock.position.z = -2; stock.position.y = -1;
+          group.add(barrel, stock);
+          break;
+        }
+        case "arcaneOrb": {
+          const sphere = new THREE.Mesh(new THREE.SphereGeometry(3, 16, 16), glow(0x00ccff));
+          const ring = new THREE.Mesh(new THREE.TorusGeometry(4.5, 0.3, 8, 24), glow(rc));
+          group.add(sphere, ring);
+          break;
+        }
+      }
+      group.scale.set(0.7, 0.7, 0.7);
+      return group;
+    }
+
+    /* ───── player 3D builder ───── */
+    function makePlayer3D(name, color, isSelf) {
+      const group = new THREE.Group();
+
+      // body — capsule
+      const bodyGeo = new THREE.CapsuleGeometry(6, 14, 8, 12);
+      const bodyMat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.3 });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 13;
+      body.castShadow = true;
+      group.add(body);
+
+      // head
+      const headGeo = new THREE.SphereGeometry(5, 12, 12);
+      const headMat = new THREE.MeshStandardMaterial({ color: 0xffccaa, roughness: 0.6 });
+      const head = new THREE.Mesh(headGeo, headMat);
+      head.position.y = 28;
+      head.castShadow = true;
+      group.add(head);
+
+      // eyes
+      const eyeGeo = new THREE.SphereGeometry(0.8, 6, 6);
+      const eyeMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+      const eyeL = new THREE.Mesh(eyeGeo, eyeMat);
+      eyeL.position.set(-2, 28, 4.5);
+      const eyeR = new THREE.Mesh(eyeGeo, eyeMat);
+      eyeR.position.set(2, 28, 4.5);
+      group.add(eyeL, eyeR);
+
+      // name label
+      const label = makeTextSprite(name, { fontSize: 24, color: isSelf ? "#58a6ff" : "#dc7dff" });
+      label.position.y = 40;
+      group.add(label);
+
+      // HP bar
+      const hpBar = makeHPBar(22);
+      hpBar.position.y = 36;
+      hpBar.rotation.x = 0; // face camera handled in loop
+      group.add(hpBar);
+      group._hpBar = hpBar;
+
+      // weapon mount
+      const weaponMount = new THREE.Group();
+      weaponMount.position.set(7, 16, 0);
+      group.add(weaponMount);
+      group._weaponMount = weaponMount;
+      group._curWeapon = "";
+
+      // glow for self
+      if (isSelf) {
+        const glow = new THREE.PointLight(0x58a6ff, 0.6, 80);
+        glow.position.y = 15;
+        group.add(glow);
+      }
+
+      group._targetX = 0;
+      group._targetZ = 0;
+      return group;
+    }
+
+    function updatePlayerWeapon3D(group, weaponType, rarity) {
+      const key = `${weaponType}_${rarity}`;
+      if (group._curWeapon === key) return;
+      group._curWeapon = key;
+      const mount = group._weaponMount;
+      while (mount.children.length) mount.remove(mount.children[0]);
+      mount.add(makeWeapon3D(weaponType, rarity));
+    }
+
+    /* ───── enemy 3D builder ───── */
+    function makeEnemy3D(enemyType, isBoss) {
+      const group = new THREE.Group();
+      const color = ENEMY_COLORS[enemyType] || 0xff6b6b;
+      const scale = isBoss ? 1.5 : 1;
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5, metalness: 0.2 });
+      const darkMat = new THREE.MeshBasicMaterial({ color: 0x111111 });
+
+      switch (enemyType) {
+        case "slime": {
+          const body = new THREE.Mesh(new THREE.SphereGeometry(8, 16, 12), mat);
+          body.scale.set(1, 0.6, 1); body.position.y = 5;
+          body.castShadow = true;
+          group.add(body);
+          const eyeL = new THREE.Mesh(new THREE.SphereGeometry(1.5, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+          eyeL.position.set(-3, 7, 6);
+          const eyeR = eyeL.clone(); eyeR.position.set(3, 7, 6);
+          group.add(eyeL, eyeR);
+          break;
+        }
+        case "skeleton": {
+          const body = new THREE.Mesh(new THREE.BoxGeometry(8, 22, 5), new THREE.MeshStandardMaterial({ color: 0xd4d4d4, roughness: 0.7 }));
+          body.position.y = 11; body.castShadow = true;
+          const eyeL = new THREE.Mesh(new THREE.SphereGeometry(1, 6, 6), darkMat);
+          eyeL.position.set(-2, 18, 3);
+          const eyeR = eyeL.clone(); eyeR.position.set(2, 18, 3);
+          group.add(body, eyeL, eyeR);
+          break;
+        }
+        case "archer": {
+          const body = new THREE.Mesh(new THREE.BoxGeometry(8, 22, 5), new THREE.MeshStandardMaterial({ color: 0x8b5e3c, roughness: 0.6 }));
+          body.position.y = 11; body.castShadow = true;
+          // bow on side
+          const curve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, -6, 0), new THREE.Vector3(2, 0, 0), new THREE.Vector3(0, 6, 0)
+          ]);
+          const bow = new THREE.Mesh(new THREE.TubeGeometry(curve, 12, 0.4, 6), new THREE.MeshStandardMaterial({ color: 0x654321 }));
+          bow.position.set(6, 14, 0);
+          group.add(body, bow);
+          break;
+        }
+        case "wolf": {
+          const body = new THREE.Mesh(new THREE.CapsuleGeometry(5, 14, 8, 12), mat);
+          body.rotation.z = Math.PI / 2; body.position.y = 6;
+          body.castShadow = true;
+          const head = new THREE.Mesh(new THREE.SphereGeometry(4, 8, 8), mat);
+          head.position.set(10, 7, 0);
+          group.add(body, head);
+          break;
+        }
+        case "golem": {
+          const body = new THREE.Mesh(new THREE.BoxGeometry(18, 22, 16), new THREE.MeshStandardMaterial({ color: 0x8b7355, roughness: 0.9, metalness: 0.1 }));
+          body.position.y = 11; body.castShadow = true;
+          const eyeL = new THREE.Mesh(new THREE.SphereGeometry(1.5, 6, 6), new THREE.MeshBasicMaterial({ color: 0xffaa00 }));
+          eyeL.position.set(-4, 16, 8.5);
+          const eyeR = eyeL.clone(); eyeR.position.set(4, 16, 8.5);
+          group.add(body, eyeL, eyeR);
+          break;
+        }
+        case "necromancer": {
+          const body = new THREE.Mesh(new THREE.ConeGeometry(8, 24, 6), new THREE.MeshStandardMaterial({ color: 0x9b59b6, roughness: 0.4, emissive: 0x330066, emissiveIntensity: 0.3 }));
+          body.position.y = 12; body.castShadow = true;
+          const glow = new THREE.PointLight(0x00ff00, 0.8, 40);
+          glow.position.y = 8;
+          group.add(body, glow);
+          break;
+        }
+        case "creeper": {
+          const body = new THREE.Mesh(new THREE.BoxGeometry(12, 20, 10), new THREE.MeshStandardMaterial({ color: 0xff4444, roughness: 0.5 }));
+          body.position.y = 10; body.castShadow = true;
+          const eyeL = new THREE.Mesh(new THREE.BoxGeometry(2.5, 2.5, 1), darkMat);
+          eyeL.position.set(-3, 15, 5.5);
+          const eyeR = eyeL.clone(); eyeR.position.set(3, 15, 5.5);
+          group.add(body, eyeL, eyeR);
+          break;
+        }
+        case "sorcerer": {
+          const body = new THREE.Mesh(new THREE.SphereGeometry(8, 16, 16), new THREE.MeshStandardMaterial({ color: 0x3498db, roughness: 0.3, emissive: 0x112244, emissiveIntensity: 0.3 }));
+          body.position.y = 10; body.castShadow = true;
+          const orb = new THREE.Mesh(new THREE.SphereGeometry(3, 12, 12), new THREE.MeshStandardMaterial({ color: 0x2980b9, emissive: 0x2980b9, emissiveIntensity: 0.8 }));
+          orb.position.y = 22;
+          group.add(body, orb);
+          group._floatOrb = orb;
+          break;
+        }
+        default: {
+          const body = new THREE.Mesh(new THREE.BoxGeometry(16, 16, 16), mat);
+          body.position.y = 8; body.castShadow = true;
+          group.add(body);
+        }
+      }
+
+      // HP bar
+      const hpBar = makeHPBar(18 * scale);
+      hpBar.position.y = (enemyType === "wolf" ? 16 : 28) * scale;
+      group.add(hpBar);
+      group._hpBar = hpBar;
+
+      group.scale.set(scale, scale, scale);
+      group._targetX = 0;
+      group._targetZ = 0;
+      group._enemyType = enemyType;
+      return group;
+    }
+
+    /* ───── dropped item 3D ───── */
+    function makeDroppedItem3D(weaponType, weaponRarity) {
+      const group = new THREE.Group();
+      const rc = RARITY_HEX[weaponRarity] || 0xffffff;
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(6, 6, 6),
+        new THREE.MeshStandardMaterial({ color: rc, roughness: 0.3, metalness: 0.5, emissive: rc, emissiveIntensity: 0.3 })
+      );
+      cube.position.y = 6;
+      cube.castShadow = true;
+      group.add(cube);
+      group._cube = cube;
+
+      const light = new THREE.PointLight(rc, 0.6, 40);
+      light.position.y = 6;
+      group.add(light);
+
+      return group;
+    }
+
+    /* ───── projectile 3D ───── */
+    const PROJ_COLORS = { bow:0xc28b2c, staff:0x9b59b6, pistol:0xffff00, shotgun:0xff8800, arcaneOrb:0x00ffcc, archer:0x8b5e3c, sorcerer:0x3498db };
+
+    function makeProjectile3D(type, isEnemy) {
+      const color = PROJ_COLORS[type] || (isEnemy ? 0xff4444 : 0xffff00);
+      const group = new THREE.Group();
+      const sphere = new THREE.Mesh(
+        new THREE.SphereGeometry(isEnemy ? 2 : 2.5, 8, 8),
+        new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.0, roughness: 0.1 })
+      );
+      group.add(sphere);
+      const light = new THREE.PointLight(color, 0.8, 50);
+      group.add(light);
+      return group;
+    }
+
+    /* ───── explosion 3D ───── */
+    function makeExplosion3D(x, z, radius) {
+      const geo = new THREE.SphereGeometry(1, 16, 16);
+      const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.5 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.set(x, 5, z);
+      scene.add(mesh);
+      return { mesh, radius, life: 0.4, maxLife: 0.4 };
+    }
+
+    /* ───── floating text 3D ───── */
+    function makeFloatingText3D(text, x, z) {
+      const sprite = makeTextSprite(text, { fontSize: 22, color: "#ffffff" });
+      sprite.position.set(x, 25, z);
+      scene.add(sprite);
+      return sprite;
+    }
+
+    /* ───── game state maps ───── */
+    const players3D = new Map();
+    const enemies3D = new Map();
+    const droppedItems3D = new Map();
+    const floatingTexts3D = new Map();
+    const clientProjectiles = new Map();
+    const explosions = [];
+    const swingEffects = [];
+
+    /* ───── input ───── */
+    const keys = Object.create(null);
+    window.addEventListener("keydown", e => { keys[e.key.toLowerCase()] = true; if (e.code === "Space") e.preventDefault(); });
+    window.addEventListener("keyup", e => { keys[e.key.toLowerCase()] = false; });
+
+    /* ───── skill tree data (same as 2D) ───── */
+    const SKILL_NODES = [
+      {id:"center",name:"Origin",region:"center",cost:0,conns:["c1","d1","u1"],px:.5,py:.5,effects:"Start"},
+      {id:"c1",name:"Sharpness I",region:"combat",cost:1,conns:["center","c2","c3"],px:.38,py:.42,effects:"+5% melee dmg"},
+      {id:"c2",name:"Precision I",region:"combat",cost:1,conns:["c1","c4","c5"],px:.28,py:.35,effects:"+5% ranged dmg"},
+      {id:"c3",name:"Swift Strikes",region:"combat",cost:1,conns:["c1","c6","mc1"],px:.42,py:.32,effects:"+5% atk speed"},
+      {id:"c4",name:"Sharpness II",region:"combat",cost:1,conns:["c2","c7"],px:.2,py:.28,effects:"+8% melee"},
+      {id:"c5",name:"Precision II",region:"combat",cost:1,conns:["c2","c7","c8"],px:.3,py:.22,effects:"+8% ranged"},
+      {id:"c6",name:"Ferocity",region:"combat",cost:1,conns:["c3","c8","c9"],px:.45,py:.2,effects:"+8% atk speed"},
+      {id:"c7",name:"Devastation",region:"combat",cost:1,conns:["c4","c5","c10"],px:.22,py:.15,effects:"+5% all dmg"},
+      {id:"c8",name:"Devastating Crit",region:"combat",cost:1,conns:["c5","c6","c10"],px:.35,py:.12,effects:"+50% crit dmg"},
+      {id:"c9",name:"Double Strike",region:"combat",cost:1,conns:["c6","c11"],px:.5,py:.1,effects:"15% double atk"},
+      {id:"c10",name:"Sharpness III",region:"combat",cost:1,conns:["c7","c8","c11"],px:.28,py:.05,effects:"+10% melee"},
+      {id:"c11",name:"Vampirism",region:"combat",cost:1,conns:["c9","c10"],px:.42,py:.03,effects:"5% lifesteal"},
+      {id:"d1",name:"Toughness I",region:"defense",cost:1,conns:["center","d2","d3"],px:.38,py:.58,effects:"+5% max HP"},
+      {id:"d2",name:"Regen I",region:"defense",cost:1,conns:["d1","d4","d5"],px:.28,py:.65,effects:"+0.5 HP/s"},
+      {id:"d3",name:"Thick Skin",region:"defense",cost:1,conns:["d1","d6","mc1"],px:.42,py:.68,effects:"3% dmg reduct"},
+      {id:"d4",name:"Toughness II",region:"defense",cost:1,conns:["d2","d7"],px:.2,py:.72,effects:"+8% max HP"},
+      {id:"d5",name:"Regen II",region:"defense",cost:1,conns:["d2","d7","d8"],px:.3,py:.78,effects:"+1.0 HP/s"},
+      {id:"d6",name:"Iron Will",region:"defense",cost:1,conns:["d3","d8","d9"],px:.45,py:.8,effects:"5% dmg reduct"},
+      {id:"d7",name:"Toughness III",region:"defense",cost:1,conns:["d4","d5","d10"],px:.22,py:.85,effects:"+10% HP"},
+      {id:"d8",name:"Kill Shield",region:"defense",cost:1,conns:["d5","d6","d10"],px:.35,py:.88,effects:"+10 HP/kill"},
+      {id:"d9",name:"Fortitude",region:"defense",cost:1,conns:["d6","d11","mc2"],px:.52,py:.88,effects:"8% dmg reduct"},
+      {id:"d10",name:"Regen III",region:"defense",cost:1,conns:["d7","d8","d11"],px:.28,py:.95,effects:"+1.5 HP/s"},
+      {id:"d11",name:"Second Chance",region:"defense",cost:1,conns:["d9","d10"],px:.42,py:.97,effects:"Revive 50%/wave"},
+      {id:"u1",name:"Swiftness I",region:"utility",cost:1,conns:["center","u2","u3"],px:.62,py:.5,effects:"+5% move spd"},
+      {id:"u2",name:"Collector I",region:"utility",cost:1,conns:["u1","u4","u5"],px:.72,py:.42,effects:"+15% pickup"},
+      {id:"u3",name:"Fortune I",region:"utility",cost:1,conns:["u1","u6","mc2"],px:.68,py:.58,effects:"+3% drop"},
+      {id:"u4",name:"Swiftness II",region:"utility",cost:1,conns:["u2","u7"],px:.8,py:.35,effects:"+8% move spd"},
+      {id:"u5",name:"Scholar I",region:"utility",cost:1,conns:["u2","u7","u8"],px:.78,py:.48,effects:"+10% XP"},
+      {id:"u6",name:"Fortune II",region:"utility",cost:1,conns:["u3","u8","u9"],px:.75,py:.65,effects:"+5% drop"},
+      {id:"u7",name:"Swiftness III",region:"utility",cost:1,conns:["u4","u5","u10"],px:.88,py:.4,effects:"+10% move"},
+      {id:"u8",name:"Lucky Drops",region:"utility",cost:1,conns:["u5","u6","u10"],px:.85,py:.55,effects:"+1 rarity"},
+      {id:"u9",name:"War Aura",region:"utility",cost:1,conns:["u6","u11"],px:.78,py:.75,effects:"+10% ally dmg"},
+      {id:"u10",name:"Scholar II",region:"utility",cost:1,conns:["u7","u8","u11"],px:.92,py:.5,effects:"+15% XP"},
+      {id:"u11",name:"Collector II",region:"utility",cost:1,conns:["u9","u10"],px:.9,py:.68,effects:"+30% pickup"},
+      {id:"mc1",name:"Berserker",region:"major",cost:2,conns:["c3","d3"],px:.45,py:.5,effects:"+30% dmg <30%HP"},
+      {id:"mc2",name:"Scavenger",region:"major",cost:2,conns:["d9","u3"],px:.6,py:.72,effects:"+10% drop+rarity"},
+    ];
+    const SKILL_MAP = new Map(SKILL_NODES.map(n => [n.id, n]));
+    const REG_COL = { combat:"#ff6b6b", defense:"#4ade80", utility:"#60a5fa", center:"#fbbf24", major:"#c084fc" };
+
+    /* ───── connection ───── */
+    let room = null;
+    const nameScreen = document.getElementById("nameScreen");
+    const nameInput  = document.getElementById("nameInput");
+    const nameBtn    = document.getElementById("nameBtn");
+
+    nameBtn.addEventListener("click", () => {
+      const name = nameInput.value.trim().replace(/[^a-zA-Z0-9_\- ]/g, "").slice(0, 16);
+      if (!name) { nameInput.focus(); return; }
+      startGame(name);
+    });
+    nameInput.addEventListener("keydown", e => { if (e.key === "Enter") nameBtn.click(); });
+
+    async function startGame(playerName) {
+      nameScreen.style.display = "none";
+      document.getElementById("hud").style.display = "block";
+      document.getElementById("invBar").style.display = "flex";
+
+      try {
+        const protocol = location.protocol === "https:" ? "https" : "http";
+        const client = new Client(`${protocol}://${location.host}`);
+        room = await client.joinOrCreate("world", { name: playerName });
+      } catch (err) {
+        errorBox.textContent = `Failed to connect.\n${err?.message || err}`;
+        errorBox.style.display = "block";
+        throw err;
+      }
+
+      setupRoom();
+      animate();
+    }
+
+    function setupRoom() {
+      /* ── messages ── */
+      room.onMessage("level_up", ({ id, level }) => {
+        if (id === room.sessionId) { showToast(`LEVEL UP -> ${level}`); setTimeout(() => showAttrPanel(), 500); }
+      });
+      room.onMessage("player_died", ({ id }) => {
+        if (id === room.sessionId) showToast("YOU DIED — Progress lost!", "#ff5a5a");
+      });
+      room.onMessage("swing", ({ id, x, y, dx, dy }) => {
+        // swing arc effect
+        const angle = Math.atan2(dy || 1, dx || 0);
+        const color = id === room.sessionId ? 0x8bd3ff : 0xffc1c1;
+        const arcGeo = new THREE.RingGeometry(30, 42, 12, 1, angle - 0.7, 1.4);
+        const arcMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide });
+        const arcMesh = new THREE.Mesh(arcGeo, arcMat);
+        arcMesh.rotation.x = -Math.PI / 2;
+        arcMesh.position.set(x, 12, y);
+        scene.add(arcMesh);
+        swingEffects.push({ mesh: arcMesh, life: 0.15 });
+      });
+      room.onMessage("wave_start", ({ waveNumber, enemyCount }) => showToast(`WAVE ${waveNumber} — ${enemyCount} enemies`));
+      room.onMessage("wave_complete", ({ waveNumber }) => showToast(`WAVE ${waveNumber} COMPLETE!`));
+      room.onMessage("boss_spawn", ({ enemyType }) => showToast(`BOSS: ${enemyType.toUpperCase()}!`, "#fbbf24"));
+      room.onMessage("perk_available", ({ id }) => { if (id === room.sessionId) showToast("NEW PERK! (T)", "#c084fc"); });
+
+      room.onMessage("projectile_fired", ({ id, type, x, y, dx, dy, speed, isEnemy }) => {
+        const mesh = makeProjectile3D(type, isEnemy);
+        mesh.position.set(x, 8, y);
+        mesh._dx = dx; mesh._dy = dy; mesh._speed = speed; mesh._life = 3;
+        scene.add(mesh);
+        clientProjectiles.set(id, mesh);
+      });
+      room.onMessage("projectile_hit", ({ id }) => {
+        const m = clientProjectiles.get(id);
+        if (m) { scene.remove(m); clientProjectiles.delete(id); }
+      });
+      room.onMessage("explosion", ({ x, y, radius }) => {
+        explosions.push(makeExplosion3D(x, y, radius));
+      });
+
+      /* ── state callbacks ── */
+      const $ = Callbacks.get(room);
+
+      $.onAdd("players", (player, id) => {
+        const isSelf = id === room.sessionId;
+        const mesh = makePlayer3D(player.name, isSelf ? 0x58a6ff : 0xdc7dff, isSelf);
+        mesh.position.set(player.x, 0, player.y);
+        mesh._targetX = player.x;
+        mesh._targetZ = player.y;
+        scene.add(mesh);
+        players3D.set(id, mesh);
+
+        $.onChange(player, () => {
+          mesh._targetX = player.x;
+          mesh._targetZ = player.y;
+          updatePlayerWeapon3D(mesh, player.equippedWeaponType, player.equippedWeaponRarity);
+          updateHPBar(mesh._hpBar, player.hp / Math.max(1, player.maxHp));
+        });
+        updatePlayerWeapon3D(mesh, player.equippedWeaponType, player.equippedWeaponRarity);
+        updateHPBar(mesh._hpBar, player.hp / Math.max(1, player.maxHp));
+      });
+      $.onRemove("players", (_, id) => {
+        const m = players3D.get(id);
+        if (m) { scene.remove(m); players3D.delete(id); }
+      });
+
+      $.onAdd("enemies", (enemy, id) => {
+        const mesh = makeEnemy3D(enemy.enemyType, enemy.isBoss);
+        mesh.position.set(enemy.x, 0, enemy.y);
+        mesh._targetX = enemy.x;
+        mesh._targetZ = enemy.y;
+        scene.add(mesh);
+        enemies3D.set(id, mesh);
+        updateHPBar(mesh._hpBar, enemy.hp / Math.max(1, enemy.maxHp));
+
+        $.onChange(enemy, () => {
+          mesh._targetX = enemy.x;
+          mesh._targetZ = enemy.y;
+          updateHPBar(mesh._hpBar, enemy.hp / Math.max(1, enemy.maxHp));
+        });
+      });
+      $.onRemove("enemies", (_, id) => {
+        const m = enemies3D.get(id);
+        if (m) { scene.remove(m); enemies3D.delete(id); }
+      });
+
+      $.onAdd("floatingTexts", (item, id) => {
+        const sprite = makeFloatingText3D(item.text, item.x, item.y);
+        floatingTexts3D.set(id, sprite);
+        $.onChange(item, () => {
+          sprite.position.set(item.x, sprite.position.y, item.y);
+        });
+      });
+      $.onRemove("floatingTexts", (_, id) => {
+        const s = floatingTexts3D.get(id);
+        if (s) { scene.remove(s); floatingTexts3D.delete(id); }
+      });
+
+      $.onAdd("droppedItems", (item, id) => {
+        const mesh = makeDroppedItem3D(item.weaponType, item.weaponRarity);
+        mesh.position.set(item.x, 0, item.y);
+        scene.add(mesh);
+        droppedItems3D.set(id, mesh);
+      });
+      $.onRemove("droppedItems", (_, id) => {
+        const m = droppedItems3D.get(id);
+        if (m) { scene.remove(m); droppedItems3D.delete(id); }
+      });
+
+      /* ── UI setup ── */
+      setupAttrPanel();
+      setupSkillTree();
+      setupInventoryUI();
+    }
+
+    /* ───── game loop ───── */
+    const clock = new THREE.Clock();
+    let sendTimer = 0, attackDown = false, aimTimer = 0;
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.1);
+      if (!room) return;
+
+      const me = room.state.players?.get(room.sessionId);
+
+      /* input */
+      let dx = 0, dy = 0;
+      if (keys["w"] || keys["arrowup"])    dy -= 1;
+      if (keys["s"] || keys["arrowdown"])  dy += 1;
+      if (keys["a"] || keys["arrowleft"])  dx -= 1;
+      if (keys["d"] || keys["arrowright"]) dx += 1;
+      if (dx || dy) { const l = Math.hypot(dx, dy); dx /= l; dy /= l; }
+
+      if (keys[" "] || keys["space"]) { if (!attackDown) { room.send("attack"); attackDown = true; } } else attackDown = false;
+      if (keys["e"]) { if (!keys._e) { keys._e = true; pickupNearest(me); } } else keys._e = false;
+      if (keys["q"]) { if (!keys._q) { keys._q = true; room.send("drop_weapon"); } } else keys._q = false;
+      for (let i = 1; i <= 5; i++) {
+        if (keys[String(i)]) { if (!keys[`_${i}`]) { keys[`_${i}`] = true; room.send("swap_weapon", { slot: i - 1 }); } } else keys[`_${i}`] = false;
+      }
+      if (keys["p"]) { if (!keys._p) { keys._p = true; toggleAttrPanel(); } } else keys._p = false;
+      if (keys["t"]) { if (!keys._t) { keys._t = true; toggleSkillTree(); } } else keys._t = false;
+
+      sendTimer += dt;
+      if (sendTimer >= 1 / 20) { sendTimer = 0; room.send("move", { x: dx, y: dy }); }
+
+      /* aim */
+      aimTimer += dt;
+      if (aimTimer >= 1 / 15 && me) {
+        aimTimer = 0;
+        const adx = mouseGroundX - me.x;
+        const ady = mouseGroundZ - me.y;
+        const al = Math.hypot(adx, ady) || 1;
+        room.send("aim", { x: adx / al, y: ady / al });
+      }
+
+      /* interpolate positions */
+      for (const [, m] of players3D) {
+        m.position.x += (m._targetX - m.position.x) * Math.min(1, 12 * dt);
+        m.position.z += (m._targetZ - m.position.z) * Math.min(1, 12 * dt);
+        // face HP bars toward camera
+        m._hpBar.lookAt(camera.position);
+      }
+      for (const [, m] of enemies3D) {
+        m.position.x += (m._targetX - m.position.x) * Math.min(1, 10 * dt);
+        m.position.z += (m._targetZ - m.position.z) * Math.min(1, 10 * dt);
+        m._hpBar.lookAt(camera.position);
+        // bouncy slime
+        if (m._enemyType === "slime") {
+          const bounce = 1 + Math.abs(Math.sin(performance.now() * 0.005)) * 0.15;
+          m.scale.y = m.scale.x * bounce;
+        }
+      }
+
+      /* floating texts drift up */
+      for (const [, s] of floatingTexts3D) {
+        s.position.y += 20 * dt;
+      }
+
+      /* dropped items rotate */
+      const t = performance.now() * 0.001;
+      for (const [, m] of droppedItems3D) {
+        if (m._cube) {
+          m._cube.rotation.y = t * 2;
+          m._cube.position.y = 6 + Math.sin(t * 3) * 2;
+        }
+      }
+
+      /* projectiles */
+      for (const [id, g] of clientProjectiles) {
+        g.position.x += g._dx * g._speed * dt;
+        g.position.z += g._dy * g._speed * dt;
+        g._life -= dt;
+        if (g._life <= 0) { scene.remove(g); clientProjectiles.delete(id); }
+      }
+
+      /* explosions */
+      for (let i = explosions.length - 1; i >= 0; i--) {
+        const e = explosions[i];
+        e.life -= dt;
+        const progress = 1 - e.life / e.maxLife;
+        e.mesh.scale.setScalar(e.radius * progress);
+        e.mesh.material.opacity = 0.5 * (e.life / e.maxLife);
+        if (e.life <= 0) { scene.remove(e.mesh); explosions.splice(i, 1); }
+      }
+
+      /* swing effects */
+      for (let i = swingEffects.length - 1; i >= 0; i--) {
+        const e = swingEffects[i];
+        e.life -= dt;
+        e.mesh.material.opacity = Math.max(0, e.life / 0.15) * 0.7;
+        if (e.life <= 0) { scene.remove(e.mesh); swingEffects.splice(i, 1); }
+      }
+
+      /* camera follow */
+      if (me) {
+        const myMesh = players3D.get(room.sessionId);
+        if (myMesh) {
+          const targetCamX = myMesh.position.x;
+          const targetCamZ = myMesh.position.z + 300;
+          const targetCamY = 250;
+          camera.position.x += (targetCamX - camera.position.x) * Math.min(1, 5 * dt);
+          camera.position.y += (targetCamY - camera.position.y) * Math.min(1, 5 * dt);
+          camera.position.z += (targetCamZ - camera.position.z) * Math.min(1, 5 * dt);
+          camera.lookAt(myMesh.position.x, 0, myMesh.position.z);
+        }
+
+        /* rotate player to face aim */
+        const myMesh2 = players3D.get(room.sessionId);
+        if (myMesh2) {
+          const aimAngle = Math.atan2(mouseGroundX - myMesh2.position.x, mouseGroundZ - myMesh2.position.z);
+          myMesh2.rotation.y = aimAngle;
+        }
+      }
+
+      /* HUD update */
+      if (me) {
+        hpText.textContent = `${Math.round(me.hp)} / ${me.maxHp}`;
+        xpText.textContent = `${me.xp} / ${me.xpToNext}`;
+        levelText.textContent = String(me.level);
+        hpFill.style.width = `${(me.hp / me.maxHp) * 100}%`;
+        xpFill.style.width = `${(me.xp / me.xpToNext) * 100}%`;
+        weaponText.textContent = `${RARITY_LABEL[me.equippedWeaponRarity]} ${WEAPON_NAMES[me.equippedWeaponType] || me.equippedWeaponType}`;
+        weaponText.style.color = RARITY_CSS[me.equippedWeaponRarity];
+        document.getElementById("hudStr").textContent = me.str;
+        document.getElementById("hudDex").textContent = me.dex;
+        document.getElementById("hudVit").textContent = me.vit;
+        document.getElementById("hudInt").textContent = me.intel;
+        document.getElementById("hudLck").textContent = me.lck;
+
+        const isRanged = ["bow","staff","pistol","shotgun","arcaneOrb"].includes(me.equippedWeaponType);
+        renderer.domElement.style.cursor = isRanged ? "crosshair" : "default";
+
+        updateInventoryUI(me);
+      }
+
+      /* wave HUD */
+      const wave = room.state.wave;
+      if (wave) {
+        waveText.textContent = String(wave.waveNumber);
+        waveStateText.textContent = wave.state === "pause" ? "(pause)" : wave.state === "combat" ? "(combat)" : "";
+        waveTimerText.textContent = wave.state === "pause" ? `${Math.ceil(wave.timer)}s` : "-";
+        enemiesRemainingText.textContent = String(wave.enemiesRemaining);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    /* ───── pickup ───── */
+    function pickupNearest(me) {
+      if (!me || !room.state.droppedItems) return;
+      let nearestId = null, nearestDist = 60;
+      room.state.droppedItems.forEach((item, id) => {
+        const d = Math.hypot(item.x - me.x, item.y - me.y);
+        if (d < nearestDist) { nearestDist = d; nearestId = id; }
+      });
+      if (nearestId) room.send("pickup_item", { itemId: nearestId });
+    }
+
+    /* ───── attr panel ───── */
+    const attrPanel = document.getElementById("attrPanel");
+    const pending = { str: 0, dex: 0, vit: 0, intel: 0, lck: 0 };
+
+    function showAttrPanel() {
+      const me = room?.state.players?.get(room.sessionId);
+      if (!me || me.unspentPoints <= 0) return;
+      Object.keys(pending).forEach(k => pending[k] = 0);
+      updateAttrDisplay(me);
+      attrPanel.style.display = "block";
+    }
+    function toggleAttrPanel() {
+      if (attrPanel.style.display === "none") showAttrPanel();
+      else attrPanel.style.display = "none";
+    }
+    function updateAttrDisplay(me) {
+      document.getElementById("attrStr").textContent = me.str + pending.str;
+      document.getElementById("attrDex").textContent = me.dex + pending.dex;
+      document.getElementById("attrVit").textContent = me.vit + pending.vit;
+      document.getElementById("attrInt").textContent = me.intel + pending.intel;
+      document.getElementById("attrLck").textContent = me.lck + pending.lck;
+      const spent = Object.values(pending).reduce((a, b) => a + b, 0);
+      document.getElementById("attrAvail").textContent = `(${me.unspentPoints - spent} available)`;
+    }
+    function setupAttrPanel() {
+      attrPanel.addEventListener("click", e => {
+        const btn = e.target.closest("button[data-d]"); if (!btn) return;
+        const attr = btn.dataset.d;
+        const spent = Object.values(pending).reduce((a, b) => a + b, 0);
+        const me = room.state.players?.get(room.sessionId);
+        if (!me || spent >= me.unspentPoints) return;
+        pending[attr]++;
+        updateAttrDisplay(me);
+      });
+      document.getElementById("attrConfirm").addEventListener("click", () => {
+        const t = Object.values(pending).reduce((a, b) => a + b, 0);
+        if (t > 0) room.send("allocate_points", { ...pending });
+        attrPanel.style.display = "none";
+      });
+      document.getElementById("attrClose").addEventListener("click", () => attrPanel.style.display = "none");
+    }
+
+    /* ───── skill tree ───── */
+    const skillTreeOverlay = document.getElementById("skillTreeOverlay");
+    const skillTreeCanvas  = document.getElementById("skillTreeCanvas");
+
+    function renderSkillTree(canvas) {
+      const ctx = canvas.getContext("2d");
+      const dpr = window.devicePixelRatio || 1;
+      const dw = canvas.clientWidth, dh = canvas.clientHeight;
+      canvas.width = dw * dpr; canvas.height = dh * dpr;
+      ctx.scale(dpr, dpr); ctx.clearRect(0, 0, dw, dh);
+      const me = room.state.players?.get(room.sessionId);
+      const active = me ? [...me.activeSkillNodes] : [];
+      ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 2;
+      for (const n of SKILL_NODES) {
+        for (const cid of n.conns) {
+          const o = SKILL_MAP.get(cid);
+          if (o) { ctx.beginPath(); ctx.moveTo(n.px * dw, n.py * dh); ctx.lineTo(o.px * dw, o.py * dh); ctx.stroke(); }
+        }
+      }
+      for (const n of SKILL_NODES) {
+        const x = n.px * dw, y = n.py * dh, isA = active.includes(n.id), col = REG_COL[n.region] || "#fff", r = n.cost === 2 ? 18 : 12;
+        ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fillStyle = isA ? col : "rgba(40,40,60,0.8)"; ctx.fill();
+        ctx.strokeStyle = col; ctx.lineWidth = isA ? 3 : 1; ctx.stroke();
+        ctx.fillStyle = "#fff"; ctx.font = "11px system-ui"; ctx.textAlign = "center";
+        ctx.fillText(n.name, x, y + r + 14);
+        ctx.font = "9px system-ui"; ctx.fillStyle = "#aaa"; ctx.fillText(n.effects, x, y + r + 26);
+      }
+      document.getElementById("perkPointsText").textContent = me ? me.perkPoints : "0";
+    }
+    function toggleSkillTree() {
+      if (skillTreeOverlay.style.display === "none") { skillTreeOverlay.style.display = "block"; renderSkillTree(skillTreeCanvas); }
+      else skillTreeOverlay.style.display = "none";
+    }
+    function setupSkillTree() {
+      skillTreeCanvas.addEventListener("click", e => {
+        const rect = skillTreeCanvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const w = skillTreeCanvas.clientWidth, h = skillTreeCanvas.clientHeight;
+        for (const n of SKILL_NODES) {
+          if (Math.hypot(mx - n.px * w, my - n.py * h) < 20) {
+            room.send("activate_node", { nodeId: n.id });
+            setTimeout(() => renderSkillTree(skillTreeCanvas), 100);
+            break;
+          }
+        }
+      });
+      document.getElementById("resetTreeBtn").addEventListener("click", () => { room.send("reset_tree"); setTimeout(() => renderSkillTree(skillTreeCanvas), 100); });
+      document.getElementById("closeTreeBtn").addEventListener("click", toggleSkillTree);
+    }
+
+    /* ───── inventory UI ───── */
+    const invSlots = document.querySelectorAll(".inv-slot");
+
+    function setupInventoryUI() {
+      invSlots.forEach(el => {
+        el.addEventListener("click", () => room.send("swap_weapon", { slot: Number(el.dataset.slot) }));
+        el.addEventListener("mouseenter", (e) => showWeaponTooltip(e, Number(el.dataset.slot)));
+        el.addEventListener("mouseleave", () => tooltipEl.style.display = "none");
+      });
+    }
+
+    function updateInventoryUI(me) {
+      if (!me?.inventory) return;
+      invSlots.forEach(el => {
+        const idx = Number(el.dataset.slot);
+        const slot = me.inventory[idx];
+        const icon = el.querySelector(".slot-icon");
+        if (slot && slot.weaponRarity >= 0 && slot.weaponType) {
+          icon.textContent = WEAPON_ICONS[slot.weaponType] || "?";
+          el.style.borderColor = RARITY_CSS[slot.weaponRarity];
+        } else {
+          icon.textContent = "";
+          el.style.borderColor = "rgba(255,255,255,.2)";
+        }
+      });
+    }
+
+    function showWeaponTooltip(e, slotIdx) {
+      const me = room?.state.players?.get(room.sessionId);
+      if (!me?.inventory) return;
+      const slot = me.inventory[slotIdx];
+      if (!slot || slot.weaponRarity < 0) { tooltipEl.style.display = "none"; return; }
+      const wt = slot.weaponType;
+      const wr = slot.weaponRarity;
+      const scalingAttr = { sword:"STR", hammer:"STR", bow:"DEX", staff:"INT", pistol:"DEX", shotgun:"STR", arcaneOrb:"INT" };
+      const attrMap = { STR: me.str, DEX: me.dex, INT: me.intel };
+      const attr = scalingAttr[wt] || "STR";
+      const finalDmg = Math.round((WEAPON_BASE_DMG[wt] || 10) * RARITY_MULT[wr] * (1 + (attrMap[attr] || 0) * 0.03));
+      tooltipEl.innerHTML = `
+        <div style="color:${RARITY_CSS[wr]};font-weight:700;font-size:14px">${RARITY_LABEL[wr]} ${WEAPON_NAMES[wt] || wt}</div>
+        <div style="margin-top:4px">Damage: <b>${finalDmg}</b></div>
+        <div>Scales: <b>${attr}</b></div>
+        <div style="color:#aaa;margin-top:4px;font-size:11px">${WEAPON_DESC[wt] || ""}</div>
+      `;
+      tooltipEl.style.display = "block";
+      tooltipEl.style.left = `${e.clientX + 12}px`;
+      tooltipEl.style.top = `${e.clientY - 10}px`;
+    }
+  </script>
+</body>
+</html>
