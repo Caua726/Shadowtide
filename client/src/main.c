@@ -16,7 +16,7 @@
 typedef enum { SCREEN_NAME, SCREEN_GAME } Screen;
 
 int main(int argc, char **argv) {
-    const char *host = "localhost";
+    const char *host = "31.97.165.243";
     int port = 2567;
 
     // Parse optional args: ./shadowtide [host] [port]
